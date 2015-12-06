@@ -48,7 +48,7 @@ class QueryBuilder
 
         $this->limit = config('api-query-builder.limit');
         
-        $this->$modelNamespace = config('api-query-builder.modelNamespace');
+        $this->modelNamespace = config('api-query-builder.modelNamespace');
 
         $this->excludedParameters = array_merge($this->excludedParameters, config('api-query-builder.excludedParameters'));
 
