@@ -1,4 +1,4 @@
-<?php 
+<?php
 
 namespace Unlu\Laravel\Api;
 
@@ -33,18 +33,22 @@ class QueryBuilder
     protected $includes = [];
 
     protected $groupBy = [];
-
+    
     protected $excludedParameters = [];
 
     protected $query;
 
     protected $result;
+    
+    protected $modelNamespace = '';
 
     public function __construct(Model $model, Request $request)
     {
         $this->orderBy = config('api-query-builder.orderBy');
 
         $this->limit = config('api-query-builder.limit');
+        
+        $this->$modelNamespace = config('api-query-builder.modelNamespace');
 
         $this->excludedParameters = array_merge($this->excludedParameters, config('api-query-builder.excludedParameters'));
 
@@ -77,7 +81,9 @@ class QueryBuilder
 
         array_map([$this, 'addOrderByToQuery'], $this->orderBy);
 
-        $this->query->with($this->includes);
+		if ($this->hasIncludes()) {
+			$this->query->with($this->includes);
+		}
 
         $this->query->select($this->columns);
 
@@ -128,6 +134,12 @@ class QueryBuilder
 
         call_user_func($callback, $callbackParameter['value']);
     }
+
+    private function addInclude($include) {
+		if (!in_array($include, $this->includes)) {
+			$this->includes[] = $include;
+		}
+	}
 
     private function setIncludes($includes)
     {
@@ -191,7 +203,7 @@ class QueryBuilder
         };
     }
 
-    private function setOrderBy($order) 
+    private function setOrderBy($order)
     {
         $this->orderBy = [];
 
@@ -212,7 +224,7 @@ class QueryBuilder
         $this->orderBy[] = [
             'column' => $column,
             'direction' => $direction
-        ]; 
+        ];
     }
 
     private function setGroupBy($groups)
@@ -220,14 +232,14 @@ class QueryBuilder
         $this->groupBy = array_filter(explode(',', $groups));
     }
 
-    private function setLimit($limit) 
+    private function setLimit($limit)
     {
         $limit = ($limit == 'unlimited') ? null : (int) $limit;
 
         $this->limit = $limit;
     }
 
-    private function setWheres($parameters) 
+    private function setWheres($parameters)
     {
         $this->wheres = $parameters;
     }
@@ -248,7 +260,21 @@ class QueryBuilder
             throw new UnknownColumnException("Unknown column '{$key}'");
         }
 
-        $this->query->where($key, $operator, $value);
+        $tables = explode('.', $key);
+        $column = array_pop($tables);
+
+        if (sizeof($tables > 0)) {
+            $tables = implode('.', $tables);
+            
+			$this->query->whereHas($tables, function($query) use ($where) {
+				$query->where($column, $where['operator'], $where['value']);
+			});
+            
+            $this->addInclude($tables);
+        }
+        else {
+            $this->query->where($key, $operator, $value);
+        }
     }
 
     private function addOrderByToQuery($order)
@@ -259,7 +285,7 @@ class QueryBuilder
 
         extract($order);
 
-        $this->query->orderBy($column, $direction);
+        $this->query->orderBy($this->model->getTable().'.'.$column, $direction);
     }
 
     private function applyCustomFilter($key, $operator, $value)
@@ -273,13 +299,13 @@ class QueryBuilder
     {
         return (count(explode('.', $column)) > 1);
     }
-
+    
     private function isExcludedParameter($key)
     {
         return in_array($key, $this->excludedParameters);
     }
 
-    private function hasWheres() 
+    private function hasWheres()
     {
         return (count($this->wheres) > 0);
     }
@@ -311,7 +337,15 @@ class QueryBuilder
 
     private function hasTableColumn($column)
     {
-        return (Schema::hasColumn($this->model->getTable(), $column));
+        $model = $this->model;
+
+        $tables = explode('.', $column);
+        $column = array_pop($tables);
+        if (sizeof($tables) > 0) {
+            $model = $this->modelNamespace.studly_case(str_singular(array_pop($tables)));
+            $model = new $model;
+        }
+        return (Schema::hasColumn($model->getTable(), $column));
     }
 
     private function hasCustomFilter($key)

@@ -10,7 +10,8 @@ return [
             'direction' => 'desc'
         ]
     ],
-
-    'excludedParameters' => [],
-
+    
+   'excludedParameters' => [],
+   
+   'modelNamespace' => 'App\Models\',
 ];
