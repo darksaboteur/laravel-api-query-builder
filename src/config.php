@@ -13,5 +13,5 @@ return [
     
    'excludedParameters' => [],
    
-   'modelNamespace' => 'App\Models\',
+   'modelNamespace' => 'App\Models\\',
 ];
