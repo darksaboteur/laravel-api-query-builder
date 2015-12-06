@@ -266,7 +266,7 @@ class QueryBuilder
         if (sizeof($tables > 0)) {
             $tables = implode('.', $tables);
             
-			$this->query->whereHas($tables, function($query) use ($where) {
+			$this->query->whereHas($tables, function($query) use ($where, $column) {
 				$query->where($column, $where['operator'], $where['value']);
 			});
             
