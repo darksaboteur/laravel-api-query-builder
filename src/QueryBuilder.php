@@ -263,7 +263,7 @@ class QueryBuilder
         $tables = explode('.', $key);
         $column = array_pop($tables);
 
-        if (sizeof($tables > 0)) {
+        if (sizeof($tables) > 0) {
             $tables = implode('.', $tables);
             
 			$this->query->whereHas($tables, function($query) use ($where, $column) {
