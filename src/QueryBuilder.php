@@ -8,6 +8,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Unlu\Laravel\Api\Exceptions\UnknownColumnException;
+use Unlu\Laravel\Api\Exceptions\UnknownRelationException;
 use Unlu\Laravel\Api\UriParser;
 
 class QueryBuilder
@@ -255,8 +256,17 @@ class QueryBuilder
         if ($this->hasCustomFilter($key)) {
             return $this->applyCustomFilter($key, $operator, $value);
         }
+        
+        
+        $tables = explode('.', $key);
+        $column = array_pop($tables);
+        
+        if (!($model = $this->getTableRelation($tables))) {
+            throw new UnknownRelationException("Unknown relation '{$key}'");
+        }
+        
 
-        if (! $this->hasTableColumn($key)) {
+        if (!$this->hasTableColumn($key, $model)) {
             throw new UnknownColumnException("Unknown column '{$key}'");
         }
 
@@ -266,9 +276,9 @@ class QueryBuilder
         if (sizeof($tables) > 0) {
             $tables = implode('.', $tables);
             
-			$this->query->whereHas($tables, function($query) use ($where, $column) {
-				$query->where($column, $where['operator'], $where['value']);
-			});
+        $this->query->whereHas($tables, function($query) use ($where, $column) {
+          $query->where($column, $where['operator'], $where['value']);
+        });
             
             $this->addInclude($tables);
         }
@@ -330,21 +340,28 @@ class QueryBuilder
         return ($this->offset != 0);
     }
 
-    private function hasRelationColumns()
-    {
+    private function hasRelationColumns() {
         return (count($this->relationColumns) > 0);
     }
 
-    private function hasTableColumn($column) {
-        $model = $this->model;
-
-        $tables = explode('.', $column);
-        $column = array_pop($tables);
-        if (sizeof($tables) > 0) {
+    private function getTableRelation($tables) {
+      $model = $this->model;
+      try {
+        while (sizeof($tables) > 0) {
             $method = array_shift($tables);
             $relationship = $model->$method();
             $model = $relationship->getRelated();
         }
+      }
+      catch (Exception $ex) {
+        return false;
+      }
+      return $model;
+    }
+
+    private function hasTableColumn($column, $model = null) {
+        $model = (!is_null($model) ? $model : $this->model);
+        
         return (Schema::hasColumn($model->getTable(), $column));
     }
 
