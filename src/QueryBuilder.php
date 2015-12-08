@@ -266,7 +266,7 @@ class QueryBuilder
         }
         
 
-        if (!$this->hasTableColumn($key, $model)) {
+        if (!$this->hasTableColumn($column, $model)) {
             throw new UnknownColumnException("Unknown column '{$key}'");
         }
 
