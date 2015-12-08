@@ -335,15 +335,15 @@ class QueryBuilder
         return (count($this->relationColumns) > 0);
     }
 
-    private function hasTableColumn($column)
-    {
+    private function hasTableColumn($column) {
         $model = $this->model;
 
         $tables = explode('.', $column);
         $column = array_pop($tables);
         if (sizeof($tables) > 0) {
-            $model = $this->modelNamespace.studly_case(str_singular(array_pop($tables)));
-            $model = new $model;
+            $method = array_shift($tables);
+            $relationship = $model->$method();
+            $model = $relationship->getRelated();
         }
         return (Schema::hasColumn($model->getTable(), $column));
     }
