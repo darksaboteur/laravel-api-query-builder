@@ -82,9 +82,16 @@ class QueryBuilder
 
         array_map([$this, 'addOrderByToQuery'], $this->orderBy);
 
-		if ($this->hasIncludes()) {
-			$this->query->with($this->includes);
-		}
+        if ($this->hasIncludes()) {
+          foreach ($this->includes as $include) {     //check the includes map to a valid relation
+            $tables = explode('.', $include);
+          
+            if (!($model = $this->getTableRelation($tables))) {
+              throw new UnknownRelationException("Unknown relation '".$include."'");
+            }
+          }
+          $this->query->with($this->includes);
+        }
 
         $this->query->select($this->columns);
 
@@ -262,25 +269,25 @@ class QueryBuilder
         $column = array_pop($tables);
         
         if (!($model = $this->getTableRelation($tables))) {
-            throw new UnknownRelationException("Unknown relation '{$key}'");
+            throw new UnknownRelationException("Unknown relation '".$key."'");
         }
         
 
         if (!$this->hasTableColumn($column, $model)) {
-            throw new UnknownColumnException("Unknown column '{$key}'");
+            throw new UnknownColumnException("Unknown column '".$key."'");
         }
 
         $tables = explode('.', $key);
         $column = array_pop($tables);
 
         if (sizeof($tables) > 0) {
-            $tables = implode('.', $tables);
+          $tables = implode('.', $tables);
             
-        $this->query->whereHas($tables, function($query) use ($where, $column) {
-          $query->where($column, $where['operator'], $where['value']);
-        });
+          $this->query->whereHas($tables, function($query) use ($where, $column) {
+            $query->where($column, $where['operator'], $where['value']);
+          });
             
-            $this->addInclude($tables);
+          $this->addInclude($tables);
         }
         else {
             $this->query->where($key, $operator, $value);
