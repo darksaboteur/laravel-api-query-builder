@@ -11,8 +11,7 @@ use Unlu\Laravel\Api\Exceptions\UnknownColumnException;
 use Unlu\Laravel\Api\Exceptions\UnknownRelationException;
 use Unlu\Laravel\Api\UriParser;
 
-class QueryBuilder
-{
+class QueryBuilder {
     protected $model;
 
     protected $uriParser;
@@ -32,6 +31,8 @@ class QueryBuilder
     protected $relationColumns = [];
 
     protected $includes = [];
+    
+    protected $includesDeleted = [];
 
     protected $groupBy = [];
     
@@ -43,8 +44,7 @@ class QueryBuilder
     
     protected $modelNamespace = '';
 
-    public function __construct(Model $model, Request $request)
-    {
+    public function __construct(Model $model, Request $request) {
         $this->orderBy = config('api-query-builder.orderBy');
 
         $this->limit = config('api-query-builder.limit');
@@ -60,8 +60,7 @@ class QueryBuilder
         $this->query = $this->model->newQuery();
     }
 
-    public function build()
-    {
+    public function build() {
         $this->prepare();
 
         if ($this->hasWheres()) {
@@ -89,8 +88,16 @@ class QueryBuilder
             if (!($model = $this->getTableRelation($tables))) {
               throw new UnknownRelationException("Unknown relation '".$include."'");
             }
+            
+            if (in_array($include, $this->includesDeleted)) {
+              $this->query->with([$include => function($query) {
+                  $query->withTrashed();
+                }]);
+            }
+            else {
+              $this->query->with($include);
+            }
           }
-          $this->query->with($this->includes);
         }
 
         $this->query->select($this->columns);
@@ -98,13 +105,11 @@ class QueryBuilder
         return $this;
     }
 
-    public function get()
-    {
+    public function get() {
         return $this->query->get();
     }
 
-    public function paginate()
-    {
+    public function paginate() {
         if (! $this->hasLimit()) {
             throw new Exception("You can't use unlimited option for pagination", 1);
         }
@@ -112,13 +117,11 @@ class QueryBuilder
         return $this->query->paginate($this->limit);
     }
 
-    public function lists($value, $key)
-    {
+    public function lists($value, $key) {
         return $this->query->lists($value, $key);
     }
 
-    protected function prepare()
-    {
+    protected function prepare() {
         $this->setWheres($this->uriParser->whereParameters());
 
         $constantParameters = $this->uriParser->constantParameters();
@@ -132,8 +135,7 @@ class QueryBuilder
         return $this;
     }
 
-    private function prepareConstant($parameter)
-    {
+    private function prepareConstant($parameter) {
         if (! $this->uriParser->hasQueryParameter($parameter)) return;
 
         $callback = [$this, $this->setterMethodName($parameter)];
@@ -144,25 +146,26 @@ class QueryBuilder
     }
 
     private function addInclude($include) {
-		if (!in_array($include, $this->includes)) {
-			$this->includes[] = $include;
-		}
-	}
-
-    private function setIncludes($includes)
-    {
-        $this->includes = array_filter(explode(',', $includes));
+      if (!in_array($include, $this->includes)) {
+        $this->includes[] = $include;
+      }
     }
 
-    private function setPage($page)
-    {
+    private function setIncludes($includes) {
+        $this->includes = array_filter(explode(',', $includes));
+    }
+    
+    private function setIncludesDeleted($includes) {
+        $this->includesDeleted = array_filter(explode(',', $includes));
+    }
+
+    private function setPage($page) {
         $this->page = (int) $page;
 
         $this->offset = ($page - 1) * $this->limit;
     }
 
-    private function setColumns($columns)
-    {
+    private function setColumns($columns) {
         $columns = array_filter(explode(',', $columns));
 
         $this->columns = $this->relationColumns = [];
@@ -170,8 +173,7 @@ class QueryBuilder
         array_map([$this, 'setColumn'], $columns);
     }
 
-    private function setColumn($column)
-    {
+    private function setColumn($column) {
         if ($this->isRelationColumn($column)) {
             return $this->appendRelationColumn($column);
         }
@@ -179,15 +181,13 @@ class QueryBuilder
         $this->columns[] = $column;
     }
 
-    private function appendRelationColumn($keyAndColumn)
-    {
+    private function appendRelationColumn($keyAndColumn) {
         list($key, $column) = explode('.', $keyAndColumn);
 
         $this->relationColumns[$key][] = $column;
     }
 
-    private function fixRelationColumns()
-    {
+    private function fixRelationColumns() {
         $keys = array_keys($this->relationColumns);
 
         $callback = [$this, 'fixRelationColumn'];
@@ -195,8 +195,7 @@ class QueryBuilder
         array_map($callback, $keys, $this->relationColumns);
     }
 
-    private function fixRelationColumn($key, $columns)
-    {
+    private function fixRelationColumn($key, $columns) {
         $index = array_search($key, $this->includes);
 
         unset($this->includes[$index]);
@@ -204,15 +203,13 @@ class QueryBuilder
         $this->includes[$key] = $this->closureRelationColumns($columns);
     }
 
-    private function closureRelationColumns($columns)
-    {
+    private function closureRelationColumns($columns) {
         return function($q) use ($columns) {
             $q->select($columns);
         };
     }
 
-    private function setOrderBy($order)
-    {
+    private function setOrderBy($order) {
         $this->orderBy = [];
 
         $orders = array_filter(explode('|', $order));
@@ -220,40 +217,35 @@ class QueryBuilder
         array_map([$this, 'appendOrderBy'], $orders);
     }
 
-    private function appendOrderBy($order)
-    {
+    private function appendOrderBy($order) {
         if ($order == 'random') {
             $this->orderBy[] = 'random';
             return;
         }
 
         list($column, $direction) = explode(',', $order);
-
+        
         $this->orderBy[] = [
             'column' => $column,
             'direction' => $direction
         ];
     }
 
-    private function setGroupBy($groups)
-    {
+    private function setGroupBy($groups) {
         $this->groupBy = array_filter(explode(',', $groups));
     }
 
-    private function setLimit($limit)
-    {
+    private function setLimit($limit) {
         $limit = ($limit == 'unlimited') ? null : (int) $limit;
 
         $this->limit = $limit;
     }
 
-    private function setWheres($parameters)
-    {
+    private function setWheres($parameters) {
         $this->wheres = $parameters;
     }
 
-    private function addWhereToQuery($where)
-    {
+    private function addWhereToQuery($where) {
         extract($where);
 
         if ($this->isExcludedParameter($key)) {
@@ -263,7 +255,6 @@ class QueryBuilder
         if ($this->hasCustomFilter($key)) {
             return $this->applyCustomFilter($key, $operator, $value);
         }
-        
         
         $tables = explode('.', $key);
         $column = array_pop($tables);
@@ -294,8 +285,7 @@ class QueryBuilder
         }
     }
 
-    private function addOrderByToQuery($order)
-    {
+    private function addOrderByToQuery($order) {
         if ($order == 'random') {
             return $this->query->orderBy(DB::raw('RAND()'));
         }
@@ -305,45 +295,37 @@ class QueryBuilder
         $this->query->orderBy($this->model->getTable().'.'.$column, $direction);
     }
 
-    private function applyCustomFilter($key, $operator, $value)
-    {
+    private function applyCustomFilter($key, $operator, $value) {
         $callback = [$this, $this->customFilterName($key)];
 
         $this->query = call_user_func($callback, $this->query, $value, $operator);
     }
 
-    private function isRelationColumn($column)
-    {
+    private function isRelationColumn($column) {
         return (count(explode('.', $column)) > 1);
     }
     
-    private function isExcludedParameter($key)
-    {
+    private function isExcludedParameter($key) {
         return in_array($key, $this->excludedParameters);
     }
 
-    private function hasWheres()
-    {
+    private function hasWheres() {
         return (count($this->wheres) > 0);
     }
 
-    private function hasIncludes()
-    {
+    private function hasIncludes() {
         return (count($this->includes) > 0);
     }
 
-    private function hasGroupBy()
-    {
+    private function hasGroupBy() {
         return (count($this->groupBy) > 0);
     }
 
-    private function hasLimit()
-    {
+    private function hasLimit() {
         return ($this->limit);
     }
 
-    private function hasOffset()
-    {
+    private function hasOffset() {
         return ($this->offset != 0);
     }
 
@@ -368,24 +350,20 @@ class QueryBuilder
 
     private function hasTableColumn($column, $model = null) {
         $model = (!is_null($model) ? $model : $this->model);
-        
         return (Schema::hasColumn($model->getTable(), $column));
     }
 
-    private function hasCustomFilter($key)
-    {
+    private function hasCustomFilter($key) {
         $methodName = $this->customFilterName($key);
 
         return (method_exists($this, $methodName));
     }
 
-    private function setterMethodName($key)
-    {
+    private function setterMethodName($key) {
         return 'set' . studly_case($key);
     }
 
-    private function customFilterName($key)
-    {
+    private function customFilterName($key) {
         return 'filterBy' . studly_case($key);
     }
 }

@@ -4,8 +4,7 @@ namespace Unlu\Laravel\Api;
 
 use Illuminate\Http\Request;
 
-class UriParser 
-{
+class UriParser  {
     protected $request;
     
     protected $pattern = '/!=|=|<=|<|>=|>/';
@@ -16,7 +15,8 @@ class UriParser
         'limit', 
         'page', 
         'columns', 
-        'includes'
+        'includes',
+        'includes_deleted',
     ];
 
     protected $uri;
@@ -25,8 +25,7 @@ class UriParser
 
     protected $queryParameters = [];
 
-    public function __construct(Request $request)
-    {
+    public function __construct(Request $request) {
         $this->request = $request;
 
         $this->uri = $request->getRequestUri();
@@ -38,8 +37,7 @@ class UriParser
         }
     }
 
-    public function queryParameter($key)
-    {
+    public function queryParameter($key) {
         $keys = array_pluck($this->queryParameters, 'key');
         
         $queryParameters = array_combine($keys, $this->queryParameters);
@@ -47,39 +45,33 @@ class UriParser
         return $queryParameters[$key];
     }
 
-    public function constantParameters()
-    {
+    public function constantParameters() {
         return $this->constantParameters;
     }
 
-    public function whereParameters()
-    {
+    public function whereParameters() {
         return array_filter(
             $this->queryParameters, 
-            function($queryParameter)
-            {
+            function($queryParameter) {
                 $key = $queryParameter['key'];
                 return (! in_array($key, $this->constantParameters));
             }
         );
     }
 
-    private function setQueryUri($uri)
-    {
+    private function setQueryUri($uri) {
         $explode = explode('?', $uri);
 
         $this->queryUri = (isset($explode[1])) ? rawurldecode($explode[1]) : null;
     }
 
-    private function setQueryParameters($queryUri)
-    {
+    private function setQueryParameters($queryUri) {
         $queryParameters = array_filter(explode('&', $queryUri));
 
         array_map([$this, 'appendQueryParameter'], $queryParameters);
     }
 
-    private function appendQueryParameter($parameter)
-    {
+    private function appendQueryParameter($parameter) {
         preg_match($this->pattern, $parameter, $matches);
 
         $operator = $matches[0];
@@ -99,32 +91,27 @@ class UriParser
         ];
     }
 
-    public function hasQueryUri()
-    {
+    public function hasQueryUri() {
         return ($this->queryUri);
     }
 
-    public function hasQueryParameters()
-    {
+    public function hasQueryParameters() {
         return (count($this->queryParameters) > 0);
     }
 
-    public function hasQueryParameter($key)
-    {
+    public function hasQueryParameter($key) {
         $keys = array_pluck($this->queryParameters, 'key');
 
         return (in_array($key, $keys));
     }
 
-    private function isLikeQuery($query)
-    {
+    private function isLikeQuery($query) {
         $pattern = "/^\*|\*$/";
 
         return (preg_match($pattern, $query, $matches));
     }
 
-    private function isConstantParameter($key)
-    {
+    private function isConstantParameter($key) {
         return (in_array($key, $this->constantParameters));
     }
 }
