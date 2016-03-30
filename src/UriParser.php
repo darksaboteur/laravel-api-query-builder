@@ -1,4 +1,4 @@
-<?php 
+<?php
 
 namespace Unlu\Laravel\Api;
 
@@ -6,15 +6,15 @@ use Illuminate\Http\Request;
 
 class UriParser  {
     protected $request;
-    
+
     protected $pattern = '/!=|=|<=|<|>=|>/';
 
     protected $constantParameters = [
-        'order_by', 
-        'group_by', 
-        'limit', 
-        'page', 
-        'columns', 
+        'order_by',
+        'group_by',
+        'limit',
+        'page',
+        'columns',
         'includes',
         'includes_deleted',
     ];
@@ -39,9 +39,9 @@ class UriParser  {
 
     public function queryParameter($key) {
         $keys = array_pluck($this->queryParameters, 'key');
-        
+
         $queryParameters = array_combine($keys, $this->queryParameters);
-       
+
         return $queryParameters[$key];
     }
 
@@ -51,7 +51,7 @@ class UriParser  {
 
     public function whereParameters() {
         return array_filter(
-            $this->queryParameters, 
+            $this->queryParameters,
             function($queryParameter) {
                 $key = $queryParameter['key'];
                 return (! in_array($key, $this->constantParameters));
@@ -62,11 +62,17 @@ class UriParser  {
     private function setQueryUri($uri) {
         $explode = explode('?', $uri);
 
-        $this->queryUri = (isset($explode[1])) ? rawurldecode($explode[1]) : null;
+        $this->queryUri = (isset($explode[1])) ? $explode[1] : null;
     }
 
     private function setQueryParameters($queryUri) {
+		$explode = explode('?', $queryUri);
+
         $queryParameters = array_filter(explode('&', $queryUri));
+
+		foreach ($queryParameters as $i => $queryParameter) {
+			$queryParameters[$i] = rawurldecode($queryParameter);
+		}
 
         array_map([$this, 'appendQueryParameter'], $queryParameters);
     }
@@ -78,7 +84,7 @@ class UriParser  {
 
         list($key, $value) = explode($operator, $parameter);
 
-        if (! $this->isConstantParameter($key) && 
+        if (! $this->isConstantParameter($key) &&
             $this->isLikeQuery($value)) {
             $operator = 'like';
             $value = str_replace('*', '%', $value);
