@@ -31,24 +31,24 @@ class QueryBuilder {
     protected $relationColumns = [];
 
     protected $includes = [];
-    
+
     protected $includesDeleted = [];
 
     protected $groupBy = [];
-    
+
     protected $excludedParameters = [];
 
     protected $query;
 
     protected $result;
-    
+
     protected $modelNamespace = '';
 
     public function __construct(Model $model, Request $request) {
         $this->orderBy = config('api-query-builder.orderBy');
 
         $this->limit = config('api-query-builder.limit');
-        
+
         $this->modelNamespace = config('api-query-builder.modelNamespace');
 
         $this->excludedParameters = array_merge($this->excludedParameters, config('api-query-builder.excludedParameters'));
@@ -84,11 +84,11 @@ class QueryBuilder {
         if ($this->hasIncludes()) {
           foreach ($this->includes as $include) {     //check the includes map to a valid relation
             $tables = explode('.', $include);
-          
+
             if (!($model = $this->getTableRelation($tables))) {
               throw new UnknownRelationException("Unknown relation '".$include."'");
             }
-            
+
             if (in_array($include, $this->includesDeleted)) {
               $this->query->with([$include => function($query) {
                   $query->withTrashed();
@@ -119,6 +119,22 @@ class QueryBuilder {
 
     public function lists($value, $key) {
         return $this->query->lists($value, $key);
+    }
+
+    public function query() {
+        return $this->query;
+    }
+
+    public function limit() {
+        return $this->limit;
+    }
+
+    public function includes() {
+        return $this->includes;
+    }
+
+    public function wheres() {
+        return $this->wheres;
     }
 
     protected function prepare() {
@@ -154,7 +170,7 @@ class QueryBuilder {
     private function setIncludes($includes) {
         $this->includes = array_filter(explode(',', $includes));
     }
-    
+
     private function setIncludesDeleted($includes) {
         $this->includesDeleted = array_filter(explode(',', $includes));
     }
@@ -224,7 +240,7 @@ class QueryBuilder {
         }
 
         list($column, $direction) = explode(',', $order);
-        
+
         $this->orderBy[] = [
             'column' => $column,
             'direction' => $direction
@@ -255,14 +271,14 @@ class QueryBuilder {
         if ($this->hasCustomFilter($key)) {
             return $this->applyCustomFilter($key, $operator, $value);
         }
-        
+
         $tables = explode('.', $key);
         $column = array_pop($tables);
-        
+
         if (!($model = $this->getTableRelation($tables))) {
             throw new UnknownRelationException("Unknown relation '".$key."'");
         }
-        
+
 
         if (!$this->hasTableColumn($column, $model)) {
             throw new UnknownColumnException("Unknown column '".$key."'");
@@ -273,11 +289,11 @@ class QueryBuilder {
 
         if (sizeof($tables) > 0) {
           $tables = implode('.', $tables);
-            
+
           $this->query->whereHas($tables, function($query) use ($where, $column) {
             $query->where($column, $where['operator'], $where['value']);
           });
-            
+
           $this->addInclude($tables);
         }
         else {
@@ -304,7 +320,7 @@ class QueryBuilder {
     private function isRelationColumn($column) {
         return (count(explode('.', $column)) > 1);
     }
-    
+
     private function isExcludedParameter($key) {
         return in_array($key, $this->excludedParameters);
     }
