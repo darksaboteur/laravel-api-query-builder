@@ -82,6 +82,7 @@ class QueryBuilder {
         array_map([$this, 'addOrderByToQuery'], $this->orderBy);
 
         if ($this->hasIncludes()) {
+		  $missing_includes_deleted = $this->includesDeleted;
           foreach ($this->includes as $include) {     //check the includes map to a valid relation
             $tables = explode('.', $include);
 
@@ -90,13 +91,20 @@ class QueryBuilder {
             }
 
             if (in_array($include, $this->includesDeleted)) {
+              unset($missing_includes_deleted[array_search($include, $missing_includes_deleted)]);
               $this->query->with([$include => function($query) {
-                  $query->withTrashed();
-                }]);
+                $query->withTrashed();
+              }]);
             }
             else {
               $this->query->with($include);
             }
+          }
+          //add any includes deleted that were missed
+          foreach ($missing_includes_deleted as $missing_include_deleted) {
+            $this->query->with([$missing_include_deleted => function($query) {
+              $query->withTrashed();
+            }]);
           }
         }
 
