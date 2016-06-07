@@ -296,6 +296,13 @@ class QueryBuilder {
         $column = array_pop($tables);
 
         if (sizeof($tables) > 0) {
+		  $table = end($tables);
+		  if ($table) {
+			  $relationModel = $this->getTableRelation($tables);
+			  if ($relationModel) {
+				$column = $relationModel->getTable().'.'.$column;
+			  }
+		  }
           $tables = implode('.', $tables);
 
           $this->query->whereHas($tables, function($query) use ($where, $column) {
