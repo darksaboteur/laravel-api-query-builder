@@ -308,7 +308,10 @@ class QueryBuilder {
 				});
 			}
 		}
-		if (isset($wheres['wheres'])) {
+		if (isset($wheres['wheres'])) {			
+			
+			$wheres['wheres'] = $this->determineIn($wheres['wheres']);
+			
 			foreach ($wheres['wheres'] as $where) {
 				$column = $where['key'];
 				
@@ -331,10 +334,41 @@ class QueryBuilder {
 				}
 				
 				$column = $model->getTable().'.'.$column;
-				$query->where($column, $where['operator'], $where['value']);
+				if ($where['operator'] == 'in') {
+					$query->whereIn($where['key'], $where['value']);
+				}
+				else {
+					$query->where($column, $where['operator'], $where['value']);
+				}
 			}
 		}
 		return $query;
+	}
+	
+	private function determineIn($wheres) {
+		$ors = [];
+		foreach ($wheres as $where) {
+			if ($where['operator'] == '=') {
+				if (!isset($ors[$where['key']])) {
+					$ors[$where['key']] = [];
+				}
+				$ors[$where['key']][] = $where['value'];
+			}
+		}
+		
+		foreach ($ors as $key => $or) {
+			if (sizeof($or) <= 1) {
+				unset($ors[$key]);
+			}
+		}
+		
+		foreach ($wheres as $i => $where) {
+			if (in_array($where['key'], array_keys($ors))) {
+				$wheres[$i]['operator'] = 'in';
+				$wheres[$i]['value'] = $ors[$where['key']];
+			}
+		}
+		return $wheres;
 	}
 
     private function addOrderByToQuery($order) {
