@@ -17,6 +17,8 @@ class QueryBuilder {
     protected $uriParser;
 
     protected $wheres = [];
+    
+    protected $processed_wheres = [];
 
     protected $orderBy = [];
 
@@ -64,7 +66,7 @@ class QueryBuilder {
         $this->prepare();
 
         if ($this->hasWheres()) {
-            array_map([$this, 'addWhereToQuery'], $this->wheres);
+            $this->addWheresToQuery($this->processed_wheres);
         }
 
         if ($this->hasGroupBy()) {
@@ -79,7 +81,7 @@ class QueryBuilder {
             $this->query->skip($this->offset);
         }
 
-        array_map([$this, 'addOrderByToQuery'], $this->orderBy);
+        array_map([$this, 'addOrderByToQuery'], $this->orderBy);		
 
         if ($this->hasIncludes()) {
 		  $missing_includes_deleted = $this->includesDeleted;
@@ -90,22 +92,27 @@ class QueryBuilder {
               throw new UnknownRelationException("Unknown relation '".$include."'");
             }
 
-            if (in_array($include, $this->includesDeleted)) {
-              unset($missing_includes_deleted[array_search($include, $missing_includes_deleted)]);
-              $this->query->with([$include => function($query) {
-                $query->withTrashed();
-              }]);
-            }
-            else {
-              $this->query->with($include);
-            }
-          }
+			  $hasIncludesDeleted = in_array($include, $this->includesDeleted);
+			  if ($hasIncludesDeleted) {
+				  unset($missing_includes_deleted[array_search($include, $missing_includes_deleted)]);
+			  }
+			  $this->query->with([$include => function($query) use ($include, $hasIncludesDeleted) {
+				  foreach ($this->wheres as $where) {
+					$tables = explode('.', $where['key']);
+					$column = array_pop($tables);
+					if (implode('.', $tables) == $include) {						
+						$query->where($column, $where['operator'], $where['value']);
+					}
+				  }
+				  $query->withTrashed();
+			  }]);
+			}
           //add any includes deleted that were missed
-          foreach ($missing_includes_deleted as $missing_include_deleted) {
+          /*foreach ($missing_includes_deleted as $missing_include_deleted) {
             $this->query->with([$missing_include_deleted => function($query) {
               $query->withTrashed();
             }]);
-          }
+          }*/
         }
 
         $this->query->select($this->columns);
@@ -146,7 +153,21 @@ class QueryBuilder {
     }
 
     protected function prepare() {
-        $this->setWheres($this->uriParser->whereParameters());
+		$raw_wheres = $this->uriParser->whereParameters();
+		$this->setWheres($raw_wheres);
+		
+		$wheres = [];
+		foreach ($raw_wheres as $raw_where) {
+			$tables = explode('.', $raw_where['key']);
+			$raw_where['key'] = array_pop($tables);
+			$where_ptr = &$wheres;
+			foreach ($tables as $table) {
+				$where_ptr = &$where_ptr['children'][$table];
+			}
+			$where_ptr['wheres'][] = $raw_where;
+		}
+		
+        $this->setProcessedWheres($wheres);
 
         $constantParameters = $this->uriParser->constantParameters();
 
@@ -268,53 +289,53 @@ class QueryBuilder {
     private function setWheres($parameters) {
         $this->wheres = $parameters;
     }
-
-    private function addWhereToQuery($where) {
-        extract($where);
-
-        if ($this->isExcludedParameter($key)) {
-            return;
-        }
-
-        if ($this->hasCustomFilter($key)) {
-            return $this->applyCustomFilter($key, $operator, $value);
-        }
-
-        $tables = explode('.', $key);
-        $column = array_pop($tables);
-
-        if (!($model = $this->getTableRelation($tables))) {
-            throw new UnknownRelationException("Unknown relation '".$key."'");
-        }
-
-
-        if (!$this->hasTableColumn($column, $model)) {
-            throw new UnknownColumnException("Unknown column '".$key."'");
-        }
-
-        $tables = explode('.', $key);
-        $column = array_pop($tables);
-
-        if (sizeof($tables) > 0) {
-		  $table = end($tables);
-		  if ($table) {
-			  $relationModel = $this->getTableRelation($tables);
-			  if ($relationModel) {
-				$column = $relationModel->getTable().'.'.$column;
-			  }
-		  }
-          $tables = implode('.', $tables);
-
-          $this->query->whereHas($tables, function($query) use ($where, $column) {
-            $query->where($column, $where['operator'], $where['value']);
-          });
-
-          $this->addInclude($tables);
-        }
-        else {
-            $this->query->where($key, $operator, $value);
-        }
+    
+    private function setProcessedWheres($parameters) {
+        $this->processed_wheres = $parameters;
     }
+
+    private function addWheresToQuery($wheres) {	
+		return $this->applyNestedWheres($wheres, $this->query);
+    }
+    
+    private function applyNestedWheres($wheres, $query, $parent_tables = null) {
+		if (isset($wheres['children'])) {
+			foreach ($wheres['children'] as $table => $where_child) {
+				$query->whereHas($table, function($query) use ($where_child, $parent_tables, $table) {
+					$parent_tables = ($parent_tables ? $parent_tables : []);
+					$parent_tables[] = $table;
+					$this->applyNestedWheres($where_child, $query, $parent_tables);
+				});
+			}
+		}
+		if (isset($wheres['wheres'])) {
+			foreach ($wheres['wheres'] as $where) {
+				$column = $where['key'];
+				
+				if (is_null($parent_tables)) {	//only check on the top level for excluded params
+					 if ($this->isExcludedParameter($where['key'])) {
+						continue;
+					}
+
+					if ($this->hasCustomFilter($where['key'])) {
+						$this->applyCustomFilter($where['key'], $where['operator'], $where['value']);
+					}
+				}
+				
+				if (!($model = $this->getTableRelation($parent_tables))) {
+					throw new UnknownRelationException("Unknown relation '".$where['key']."'");
+				}
+				
+				if (!$this->hasTableColumn($column, $model)) {
+					throw new UnknownColumnException("Unknown column '".$where['key']."'");
+				}
+				
+				$column = ($parent_tables ? end($parent_tables).'.' : '').$column;
+				$query->where($column, $where['operator'], $where['value']);
+			}
+		}
+		return $query;
+	}
 
     private function addOrderByToQuery($order) {
         if ($order == 'random') {
