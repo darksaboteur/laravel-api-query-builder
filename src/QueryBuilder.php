@@ -330,7 +330,7 @@ class QueryBuilder {
 					throw new UnknownColumnException("Unknown column '".$where['key']."'");
 				}
 				
-				$column = ($parent_tables ? end($parent_tables).'.' : '').$column;
+				$column = $model->getTable().'.'.$column;
 				$query->where($column, $where['operator'], $where['value']);
 			}
 		}
