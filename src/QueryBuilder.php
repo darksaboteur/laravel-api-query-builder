@@ -93,7 +93,7 @@ class QueryBuilder {
             }
 
         if (in_array('true', $this->includesDeleted)) {
-          $query->withTrashed();
+          $this->query->withTrashed();
         }
 
 			  $hasIncludesDeleted = in_array($include, $this->includesDeleted);
