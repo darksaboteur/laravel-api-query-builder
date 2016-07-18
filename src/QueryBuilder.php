@@ -81,6 +81,10 @@ class QueryBuilder {
             $this->query->skip($this->offset);
         }
 
+        if (in_array('true', $this->includesDeleted)) {
+          $this->query->withTrashed();
+        }
+
         array_map([$this, 'addOrderByToQuery'], $this->orderBy);
 
         if ($this->hasIncludes()) {
@@ -91,10 +95,6 @@ class QueryBuilder {
             if (!($model = $this->getTableRelation($tables))) {
               throw new UnknownRelationException("Unknown relation '".$include."'");
             }
-
-        if (in_array('true', $this->includesDeleted)) {
-          $this->query->withTrashed();
-        }
 
 			  $hasIncludesDeleted = in_array($include, $this->includesDeleted);
 			  if ($hasIncludesDeleted) {
