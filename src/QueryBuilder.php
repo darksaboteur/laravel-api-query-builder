@@ -17,7 +17,7 @@ class QueryBuilder {
     protected $uriParser;
 
     protected $wheres = [];
-    
+
     protected $processed_wheres = [];
 
     protected $orderBy = [];
@@ -81,16 +81,20 @@ class QueryBuilder {
             $this->query->skip($this->offset);
         }
 
-        array_map([$this, 'addOrderByToQuery'], $this->orderBy);		
+        array_map([$this, 'addOrderByToQuery'], $this->orderBy);
 
         if ($this->hasIncludes()) {
-		  $missing_includes_deleted = $this->includesDeleted;
+		      $missing_includes_deleted = $this->includesDeleted;
           foreach ($this->includes as $include) {     //check the includes map to a valid relation
             $tables = explode('.', $include);
 
             if (!($model = $this->getTableRelation($tables))) {
               throw new UnknownRelationException("Unknown relation '".$include."'");
             }
+
+        if (in_array('true', $this->includesDeleted)) {
+          $query->withTrashed();
+        }
 
 			  $hasIncludesDeleted = in_array($include, $this->includesDeleted);
 			  if ($hasIncludesDeleted) {
@@ -100,7 +104,7 @@ class QueryBuilder {
 				  foreach ($this->wheres as $where) {
 					$tables = explode('.', $where['key']);
 					$column = array_pop($tables);
-					if (implode('.', $tables) == $include) {						
+					if (implode('.', $tables) == $include) {
 						$query->where($column, $where['operator'], $where['value']);
 					}
 				  }
@@ -155,7 +159,7 @@ class QueryBuilder {
     protected function prepare() {
 		$raw_wheres = $this->uriParser->whereParameters();
 		$this->setWheres($raw_wheres);
-		
+
 		$wheres = [];
 		foreach ($raw_wheres as $raw_where) {
 			$tables = explode('.', $raw_where['key']);
@@ -166,7 +170,7 @@ class QueryBuilder {
 			}
 			$where_ptr['wheres'][] = $raw_where;
 		}
-		
+
         $this->setProcessedWheres($wheres);
 
         $constantParameters = $this->uriParser->constantParameters();
@@ -289,15 +293,15 @@ class QueryBuilder {
     private function setWheres($parameters) {
         $this->wheres = $parameters;
     }
-    
+
     private function setProcessedWheres($parameters) {
         $this->processed_wheres = $parameters;
     }
 
-    private function addWheresToQuery($wheres) {	
+    private function addWheresToQuery($wheres) {
 		return $this->applyNestedWheres($wheres, $this->query);
     }
-    
+
     private function applyNestedWheres($wheres, $query, $parent_tables = null) {
 		if (isset($wheres['children'])) {
 			foreach ($wheres['children'] as $table => $where_child) {
@@ -308,13 +312,13 @@ class QueryBuilder {
 				});
 			}
 		}
-		if (isset($wheres['wheres'])) {			
-			
+		if (isset($wheres['wheres'])) {
+
 			$wheres['wheres'] = $this->determineIn($wheres['wheres']);
-			
+
 			foreach ($wheres['wheres'] as $where) {
 				$column = $where['key'];
-				
+
 				if (is_null($parent_tables)) {	//only check on the top level for excluded params
 					 if ($this->isExcludedParameter($where['key'])) {
 						continue;
@@ -324,15 +328,15 @@ class QueryBuilder {
 						$this->applyCustomFilter($where['key'], $where['operator'], $where['value']);
 					}
 				}
-				
+
 				if (!($model = $this->getTableRelation($parent_tables))) {
 					throw new UnknownRelationException("Unknown relation '".$where['key']."'");
 				}
-				
+
 				if (!$this->hasTableColumn($column, $model)) {
 					throw new UnknownColumnException("Unknown column '".$where['key']."'");
 				}
-				
+
 				$column = $model->getTable().'.'.$column;
 				if ($where['operator'] == 'in') {
 					$query->whereIn($where['key'], $where['value']);
@@ -344,7 +348,7 @@ class QueryBuilder {
 		}
 		return $query;
 	}
-	
+
 	private function determineIn($wheres) {
 		$ors = [];
 		foreach ($wheres as $where) {
@@ -355,13 +359,13 @@ class QueryBuilder {
 				$ors[$where['key']][] = $where['value'];
 			}
 		}
-		
+
 		foreach ($ors as $key => $or) {
 			if (sizeof($or) <= 1) {
 				unset($ors[$key]);
 			}
 		}
-		
+
 		foreach ($wheres as $i => $where) {
 			if (in_array($where['key'], array_keys($ors))) {
 				$wheres[$i]['operator'] = 'in';
