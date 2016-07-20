@@ -96,21 +96,23 @@ class QueryBuilder {
               throw new UnknownRelationException("Unknown relation '".$include."'");
             }
 
-			  $hasIncludesDeleted = in_array($include, $this->includesDeleted);
-			  if ($hasIncludesDeleted) {
-				  unset($missing_includes_deleted[array_search($include, $missing_includes_deleted)]);
-			  }
-			  $this->query->with([$include => function($query) use ($include, $hasIncludesDeleted) {
-				  foreach ($this->wheres as $where) {
-					$tables = explode('.', $where['key']);
-					$column = array_pop($tables);
-					if (implode('.', $tables) == $include) {
-						$query->where($column, $where['operator'], $where['value']);
-					}
-				  }
-				  $query->withTrashed();
-			  }]);
-			}
+    			  $hasIncludesDeleted = in_array($include, $this->includesDeleted);
+    			  if ($hasIncludesDeleted) {
+    				  unset($missing_includes_deleted[array_search($include, $missing_includes_deleted)]);
+    			  }
+    			  $this->query->with([$include => function($query) use ($include, $hasIncludesDeleted) {
+    				  foreach ($this->wheres as $where) {
+      					$tables = explode('.', $where['key']);
+      					$column = array_pop($tables);
+      					if (implode('.', $tables) == $include) {
+      						$query->where($column, $where['operator'], $where['value']);
+      					}
+    				  }
+              if ($hasIncludesDeleted) {
+    				    $query->withTrashed();
+              }
+    			  }]);
+    			}
           //add any includes deleted that were missed
           /*foreach ($missing_includes_deleted as $missing_include_deleted) {
             $this->query->with([$missing_include_deleted => function($query) {
