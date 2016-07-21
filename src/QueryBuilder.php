@@ -88,7 +88,6 @@ class QueryBuilder {
         array_map([$this, 'addOrderByToQuery'], $this->orderBy);
 
         if ($this->hasIncludes()) {
-		      $missing_includes_deleted = $this->includesDeleted;
           foreach ($this->includes as $include) {     //check the includes map to a valid relation
             $tables = explode('.', $include);
 
@@ -97,15 +96,12 @@ class QueryBuilder {
             }
 
     			  $hasIncludesDeleted = in_array($include, $this->includesDeleted);
-    			  if ($hasIncludesDeleted) {
-    				  unset($missing_includes_deleted[array_search($include, $missing_includes_deleted)]);
-    			  }
-    			  $this->query->with([$include => function($query) use ($include, $hasIncludesDeleted) {
+    			  $this->query->with([$include => function($query) use ($include, $model, $hasIncludesDeleted) {
     				  foreach ($this->wheres as $where) {
       					$tables = explode('.', $where['key']);
       					$column = array_pop($tables);
       					if (implode('.', $tables) == $include) {
-      						$query->where($column, $where['operator'], $where['value']);
+      						$query->where($model->getTable().'.'.$column, $where['operator'], $where['value']);
       					}
     				  }
               if ($hasIncludesDeleted) {
@@ -113,12 +109,6 @@ class QueryBuilder {
               }
     			  }]);
     			}
-          //add any includes deleted that were missed
-          /*foreach ($missing_includes_deleted as $missing_include_deleted) {
-            $this->query->with([$missing_include_deleted => function($query) {
-              $query->withTrashed();
-            }]);
-          }*/
         }
 
         $this->query->select($this->columns);
@@ -301,52 +291,51 @@ class QueryBuilder {
     }
 
     private function addWheresToQuery($wheres) {
-		return $this->applyNestedWheres($wheres, $this->query);
+		    return $this->applyNestedWheres($wheres, $this->query);
     }
 
     private function applyNestedWheres($wheres, $query, $parent_tables = null) {
-		if (isset($wheres['children'])) {
-			foreach ($wheres['children'] as $table => $where_child) {
-				$query->whereHas($table, function($query) use ($where_child, $parent_tables, $table) {
-					$parent_tables = ($parent_tables ? $parent_tables : []);
-					$parent_tables[] = $table;
-					$this->applyNestedWheres($where_child, $query, $parent_tables);
-				});
-			}
-		}
-		if (isset($wheres['wheres'])) {
+  		if (isset($wheres['children'])) {
+  			foreach ($wheres['children'] as $table => $where_child) {
+  				$query->whereHas($table, function($query) use ($where_child, $parent_tables, $table) {
+  					$parent_tables = ($parent_tables ? $parent_tables : []);
+  					$parent_tables[] = $table;
+  					$this->applyNestedWheres($where_child, $query, $parent_tables);
+  				});
+  			}
+  		}
+		  if (isset($wheres['wheres'])) {
+			  $wheres['wheres'] = $this->determineIn($wheres['wheres']);
 
-			$wheres['wheres'] = $this->determineIn($wheres['wheres']);
+  			foreach ($wheres['wheres'] as $where) {
+  				$column = $where['key'];
 
-			foreach ($wheres['wheres'] as $where) {
-				$column = $where['key'];
+  				if (is_null($parent_tables)) {	//only check on the top level for excluded params
+  					 if ($this->isExcludedParameter($where['key'])) {
+  						continue;
+  					}
 
-				if (is_null($parent_tables)) {	//only check on the top level for excluded params
-					 if ($this->isExcludedParameter($where['key'])) {
-						continue;
-					}
+  					if ($this->hasCustomFilter($where['key'])) {
+  						$this->applyCustomFilter($where['key'], $where['operator'], $where['value']);
+  					}
+  				}
 
-					if ($this->hasCustomFilter($where['key'])) {
-						$this->applyCustomFilter($where['key'], $where['operator'], $where['value']);
-					}
-				}
+  				if (!($model = $this->getTableRelation($parent_tables))) {
+  					throw new UnknownRelationException("Unknown relation '".$where['key']."'");
+  				}
 
-				if (!($model = $this->getTableRelation($parent_tables))) {
-					throw new UnknownRelationException("Unknown relation '".$where['key']."'");
-				}
+  				if (!$this->hasTableColumn($column, $model)) {
+  					throw new UnknownColumnException("Unknown column '".$where['key']."'");
+  				}
 
-				if (!$this->hasTableColumn($column, $model)) {
-					throw new UnknownColumnException("Unknown column '".$where['key']."'");
-				}
-
-				$column = $model->getTable().'.'.$column;
-				if ($where['operator'] == 'in') {
-					$query->whereIn($where['key'], $where['value']);
-				}
-				else {
-					$query->where($column, $where['operator'], $where['value']);
-				}
-			}
+  				$column = $model->getTable().'.'.$column;
+  				if ($where['operator'] == 'in') {
+  					$query->whereIn($where['key'], $where['value']);
+  				}
+  				else {
+  					$query->where($column, $where['operator'], $where['value']);
+  				}
+  			}
 		}
 		return $query;
 	}
