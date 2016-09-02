@@ -330,10 +330,25 @@ class QueryBuilder {
 
   				$column = $model->getTable().'.'.$column;
   				if ($where['operator'] == 'in') {
-  					$query->whereIn($where['key'], $where['value']);
+            $null_key = array_search('null', $where['value']);
+            if ($null_key !== false) {
+              $query->whereNull($column);
+              unset($where['value'][$null_key]);
+            }
+            if (count($where['value']) > 1) {
+  					  $query->orWhereIn($column, $where['value']);
+            }
+            else {
+              $query->orWhere($column, '=', $where['value']);
+            }
   				}
   				else {
-  					$query->where($column, $where['operator'], $where['value']);
+            if (is_null($where['value'])) {
+              $query->whereNull($column);
+            }
+            else {
+              $query->where($column, $where['operator'], $where['value']);
+            }
   				}
   			}
 		}
