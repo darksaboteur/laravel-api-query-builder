@@ -84,6 +84,12 @@ class UriParser  {
 
         list($key, $value) = explode($operator, $parameter);
 
+        $restrictive = true;
+        if (substr($key, 0, 1) == '~') {
+          $restrictive = false;
+          $key = substr($key, 1);
+        }
+
         if (! $this->isConstantParameter($key) &&
             $this->isLikeQuery($value)) {
             $operator = 'like';
@@ -93,6 +99,7 @@ class UriParser  {
         $this->queryParameters[] = [
             'key' => $key,
             'operator' => $operator,
+            'restrictive' => $restrictive,
             'value' => $value
         ];
     }

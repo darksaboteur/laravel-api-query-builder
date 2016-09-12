@@ -149,19 +149,22 @@ class QueryBuilder {
     }
 
     protected function prepare() {
-		$raw_wheres = $this->uriParser->whereParameters();
-		$this->setWheres($raw_wheres);
+  		$raw_wheres = $this->uriParser->whereParameters();
+  		$this->setWheres($raw_wheres);
 
-		$wheres = [];
-		foreach ($raw_wheres as $raw_where) {
-			$tables = explode('.', $raw_where['key']);
-			$raw_where['key'] = array_pop($tables);
-			$where_ptr = &$wheres;
-			foreach ($tables as $table) {
-				$where_ptr = &$where_ptr['children'][$table];
-			}
-			$where_ptr['wheres'][] = $raw_where;
-		}
+  		$wheres = [];
+  		foreach ($raw_wheres as $raw_where) {
+        if (!$raw_where['restrictive']) {
+          continue;
+        }
+  			$tables = explode('.', $raw_where['key']);
+  			$raw_where['key'] = array_pop($tables);
+  			$where_ptr = &$wheres;
+  			foreach ($tables as $table) {
+  				$where_ptr = &$where_ptr['children'][$table];
+  			}
+  			$where_ptr['wheres'][] = $raw_where;
+  		}
 
         $this->setProcessedWheres($wheres);
 
