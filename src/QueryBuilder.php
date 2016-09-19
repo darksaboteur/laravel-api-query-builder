@@ -18,8 +18,6 @@ class QueryBuilder {
 
     protected $wheres = [];
 
-    protected $raw_wheres = [];
-
     protected $processed_wheres = [];
 
     protected $orderBy = [];
@@ -67,8 +65,8 @@ class QueryBuilder {
     public function build() {
         $this->prepare();
 
-        if ($this->hasWheres()) {
-            $this->addWheresToQuery($this->wheres);
+        if ($this->hasWheres() || $this->hasIncludes()) {
+            $this->applyNestedWheres($this->processed_wheres, $this->query);
         }
 
         if ($this->hasGroupBy()) {
@@ -81,10 +79,6 @@ class QueryBuilder {
 
         if ($this->hasOffset()) {
             $this->query->skip($this->offset);
-        }
-
-        if (in_array('true', $this->includesDeleted)) {
-          $this->query->withTrashed();
         }
 
         array_map([$this, 'addOrderByToQuery'], $this->orderBy);
@@ -102,7 +96,6 @@ class QueryBuilder {
         if (! $this->hasLimit()) {
             throw new Exception("You can't use unlimited option for pagination", 1);
         }
-
         return $this->query->paginate($this->limit);
     }
 
@@ -126,17 +119,13 @@ class QueryBuilder {
         return $this->wheres;
     }
 
-    public function rawWheres() {
-        return $this->raw_wheres;
-    }
-
     protected function prepare() {
       $constantParameters = $this->uriParser->constantParameters();
 
       array_map([$this, 'prepareConstant'], $constantParameters);
 
   		$raw_wheres = $this->uriParser->whereParameters();
-      $this->raw_wheres = $raw_wheres;
+      $this->setWheres($raw_wheres);
 
       $with = [];
       foreach ($this->includesDeleted as $include) {     //check the includes map to a valid relation
@@ -176,7 +165,7 @@ class QueryBuilder {
 
       $this->determineRestrictive($with);
 
-      $this->setWheres($with);
+      $this->setProcessedWheres($with);
 
       if ($this->hasIncludes() && $this->hasRelationColumns()) {
           $this->fixRelationColumns();
@@ -334,10 +323,6 @@ class QueryBuilder {
 
     private function setProcessedWheres($parameters) {
         $this->processed_wheres = $parameters;
-    }
-
-    private function addWheresToQuery($wheres) {
-		    return $this->applyNestedWheres($wheres, $this->query);
     }
 
     private function applyWhere($where, $query, $parent_tables = null) {
