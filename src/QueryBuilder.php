@@ -89,31 +89,6 @@ class QueryBuilder {
 
         array_map([$this, 'addOrderByToQuery'], $this->orderBy);
 
-        //$this->applyNestedWith($this->wheres, $this->query);
-        /*if ($this->hasIncludes()) {
-          foreach ($this->includes as $include) {     //check the includes map to a valid relation
-            $tables = explode('.', $include);
-
-            if (!($model = $this->getTableRelation($tables))) {
-              throw new UnknownRelationException("Unknown relation '".$include."'");
-            }
-
-    			  $hasIncludesDeleted = in_array($include, $this->includesDeleted);
-    			  $this->query->with([$include => function($query) use ($include, $model, $hasIncludesDeleted) {
-    				  foreach ($this->wheres as $where) {
-      					$tables = explode('.', $where['key']);
-      					$column = array_pop($tables);
-      					if (implode('.', $tables) == $include) {
-      						$query->where($model->getTable().'.'.$column, $where['operator'], $where['value']);
-      					}
-    				  }
-              if ($hasIncludesDeleted) {
-    				    $query->withTrashed();
-              }
-    			  }]);
-    			}
-        }*/
-
         $this->query->select($this->columns);
 
         return $this;
@@ -164,6 +139,20 @@ class QueryBuilder {
       $this->raw_wheres = $raw_wheres;
 
       $with = [];
+      foreach ($this->includesDeleted as $include) {     //check the includes map to a valid relation
+        //special case for top level
+        if ($include == 'true') {
+          $with['include_deleted'] = true;
+          continue;
+        }
+        $tables = explode('.', $include);
+        $with_ptr = &$with;
+        foreach ($tables as $table) {
+          $with_ptr = &$with_ptr['children'][$table];
+        }
+        $with_ptr['include_deleted'] = true;
+      }
+
       foreach ($this->includes as $include) {     //check the includes map to a valid relation
         $tables = explode('.', $include);
 
@@ -171,7 +160,6 @@ class QueryBuilder {
         foreach ($tables as $table) {
           $with_ptr = &$with_ptr['children'][$table];
           $with_ptr['include'] = true;
-          //$with_ptr['restrictive'] = false;
         }
       }
 
@@ -182,18 +170,6 @@ class QueryBuilder {
         $with_ptr = &$with;
         foreach ($tables as $table) {
           $with_ptr = &$with_ptr['children'][$table];
-
-          /*if (isset($with_ptr['restrictive'])) {
-            if (($with_ptr['restrictive'] && $raw_where['restrictive']) || ($with_ptr['restrictive'] === false && $raw_where['restrictive'] === false) || (is_null($with_ptr['restrictive']) && is_null($raw_where['restrictive']))) {
-              //do nothing, it already matches
-            }
-            else {
-              $with_ptr['restrictive'] = null;
-            }
-          }
-          else {
-            $with_ptr['restrictive'] = $raw_where['restrictive'];
-          }*/
         }
         $with_ptr['wheres'][] = $raw_where;
   		}
@@ -401,9 +377,11 @@ class QueryBuilder {
     }
 
     private function applyNestedWheres($wheres, $query, $parent_tables = null, $restrictive = null) {
+      if (isset($wheres['include_deleted']) && $wheres['include_deleted']) {
+        $query = $query->withTrashed();
+      }
       if (isset($wheres['children'])) {
         foreach ($wheres['children'] as $table => $where_child) {
-
           if (isset($where_child['include']) && $where_child['include']) {
             $query->with([$table => function($sub_query) use ($where_child, $parent_tables, $table) {
               $parent_tables = ($parent_tables ? $parent_tables : []);
@@ -411,7 +389,7 @@ class QueryBuilder {
               $this->applyNestedWheres($where_child, $sub_query, $parent_tables);
             }]);
           }
-          if ($where_child['restrictive'] || (is_null($parent_tables) && is_null($where_child['restrictive']))) {
+          if ($where_child['restrictive'] || is_null($where_child['restrictive'])) {
             $query->whereHas($table, function($sub_query) use ($where_child, $parent_tables, $table) {
               $parent_tables = ($parent_tables ? $parent_tables : []);
               $parent_tables[] = $table;
