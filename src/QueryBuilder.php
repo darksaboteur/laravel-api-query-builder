@@ -68,7 +68,7 @@ class QueryBuilder {
         $this->prepare();
 
         if ($this->hasWheres()) {
-            $this->addWheresToQuery($this->processed_wheres);
+            $this->addWheresToQuery($this->wheres);
         }
 
         if ($this->hasGroupBy()) {
@@ -89,7 +89,7 @@ class QueryBuilder {
 
         array_map([$this, 'addOrderByToQuery'], $this->orderBy);
 
-        $this->applyNestedWith($this->wheres, $this->query);
+        //$this->applyNestedWith($this->wheres, $this->query);
         /*if ($this->hasIncludes()) {
           foreach ($this->includes as $include) {     //check the includes map to a valid relation
             $tables = explode('.', $include);
@@ -171,9 +171,10 @@ class QueryBuilder {
         foreach ($tables as $table) {
           $with_ptr = &$with_ptr['children'][$table];
           $with_ptr['include'] = true;
+          //$with_ptr['restrictive'] = false;
         }
       }
-  		$wheres = [];
+
   		foreach ($raw_wheres as $raw_where) {
         $tables = explode('.', $raw_where['key']);
   			$raw_where['key'] = array_pop($tables);
@@ -181,28 +182,68 @@ class QueryBuilder {
         $with_ptr = &$with;
         foreach ($tables as $table) {
           $with_ptr = &$with_ptr['children'][$table];
+
+          /*if (isset($with_ptr['restrictive'])) {
+            if (($with_ptr['restrictive'] && $raw_where['restrictive']) || ($with_ptr['restrictive'] === false && $raw_where['restrictive'] === false) || (is_null($with_ptr['restrictive']) && is_null($raw_where['restrictive']))) {
+              //do nothing, it already matches
+            }
+            else {
+              $with_ptr['restrictive'] = null;
+            }
+          }
+          else {
+            $with_ptr['restrictive'] = $raw_where['restrictive'];
+          }*/
         }
         $with_ptr['wheres'][] = $raw_where;
-
-        if ($raw_where['restrictive']) {
-          $where_ptr = &$wheres;
-    			foreach ($tables as $table) {
-    				$where_ptr = &$where_ptr['children'][$table];
-    			}
-    			$where_ptr['wheres'][] = $raw_where;
-        }
   		}
 
+      $this->determineRestrictive($with);
+
       $this->setWheres($with);
-      $this->setProcessedWheres($wheres);
-
-
 
       if ($this->hasIncludes() && $this->hasRelationColumns()) {
           $this->fixRelationColumns();
       }
 
       return $this;
+    }
+
+    private function determineRestrictive(&$wheres) {
+      $status = -1;
+
+      if (isset($wheres['children'])) {
+        foreach ($wheres['children'] as $i => $where) {
+          $restrictive = $this->determineRestrictive($wheres['children'][$i]);
+          if ($status === -1) {
+            $status = $restrictive;
+          }
+          elseif ($status === $restrictive) {
+            //they match, do nothing
+          }
+          else {
+            $status = null;
+          }
+        }
+      }
+
+      if (isset($wheres['wheres'])) {
+        foreach ($wheres['wheres'] as $where) {
+          if ($status === -1) {
+            $status = $where['restrictive'];
+          }
+          elseif ($status === $where['restrictive']) {
+            //they match, do nothing
+          }
+          else {
+            $status = null;
+          }
+        }
+      }
+
+      $status = ($status === -1 ? false : $status);
+      $wheres['restrictive'] = $status;
+      return $status;
     }
 
     private function prepareConstant($parameter) {
@@ -323,31 +364,66 @@ class QueryBuilder {
 		    return $this->applyNestedWheres($wheres, $this->query);
     }
 
-    private function applyNestedWith($wheres, $query, $parent_tables = null) {
+    private function applyWhere($where, $query, $parent_tables = null) {
+      $column = $where['key'];
+
+      if (!($model = $this->getTableRelation($parent_tables))) {
+        throw new UnknownRelationException("Unknown relation '".$where['key']."'");
+      }
+
+      if (!$this->hasTableColumn($column, $model)) {
+        throw new UnknownColumnException("Unknown column '".$where['key']."'");
+      }
+
+      $column = $model->getTable().'.'.$column;
+      if ($where['operator'] == 'in') {
+        $null_key = array_search('null', $where['value']);
+        if ($null_key !== false) {
+          $query->whereNull($column);
+          unset($where['value'][$null_key]);
+        }
+        if (count($where['value']) > 1) {
+          $query->orWhereIn($column, $where['value']);
+        }
+        else {
+          $query->orWhere($column, '=', $where['value']);
+        }
+      }
+      else {
+        if (is_null($where['value'])) {
+          $query->whereNull($column);
+        }
+        else {
+          $query->where($column, $where['operator'], $where['value']);
+        }
+      }
+      return $query;
+    }
+
+    private function applyNestedWheres($wheres, $query, $parent_tables = null, $restrictive = null) {
       if (isset($wheres['children'])) {
         foreach ($wheres['children'] as $table => $where_child) {
+
           if (isset($where_child['include']) && $where_child['include']) {
-            $query->with([$table => function($query) use ($where_child, $parent_tables, $table) {
+            $query->with([$table => function($sub_query) use ($where_child, $parent_tables, $table) {
               $parent_tables = ($parent_tables ? $parent_tables : []);
               $parent_tables[] = $table;
-              $this->applyNestedWith($where_child, $query, $parent_tables);
+              $this->applyNestedWheres($where_child, $sub_query, $parent_tables);
             }]);
           }
-
-            $query->whereHas($table, function($query) use ($where_child, $parent_tables, $table) {
+          if ($where_child['restrictive'] || (is_null($parent_tables) && is_null($where_child['restrictive']))) {
+            $query->whereHas($table, function($sub_query) use ($where_child, $parent_tables, $table) {
               $parent_tables = ($parent_tables ? $parent_tables : []);
               $parent_tables[] = $table;
-              $this->applyNestedWith($where_child, $query, $parent_tables);
+              $this->applyNestedWheres($where_child, $sub_query, $parent_tables, true);
             });
-
+          }
         }
       }
       if (isset($wheres['wheres'])) {
         $wheres['wheres'] = $this->determineIn($wheres['wheres']);
 
         foreach ($wheres['wheres'] as $where) {
-          $column = $where['key'];
-
           if (is_null($parent_tables)) {	//only check on the top level for excluded params
              if ($this->isExcludedParameter($where['key'])) {
               continue;
@@ -358,101 +434,13 @@ class QueryBuilder {
             }
           }
 
-          if (!($model = $this->getTableRelation($parent_tables))) {
-            throw new UnknownRelationException("Unknown relation '".$where['key']."'");
-          }
-
-          if (!$this->hasTableColumn($column, $model)) {
-            throw new UnknownColumnException("Unknown column '".$where['key']."'");
-          }
-
-          $column = $model->getTable().'.'.$column;
-          if ($where['operator'] == 'in') {
-            $null_key = array_search('null', $where['value']);
-            if ($null_key !== false) {
-              $query->whereNull($column);
-              unset($where['value'][$null_key]);
-            }
-            if (count($where['value']) > 1) {
-              $query->orWhereIn($column, $where['value']);
-            }
-            else {
-              $query->orWhere($column, '=', $where['value']);
-            }
-          }
-          else {
-            if (is_null($where['value'])) {
-              $query->whereNull($column);
-            }
-            else {
-              $query->where($column, $where['operator'], $where['value']);
-            }
+          if (is_null($restrictive) || ($restrictive && $where['restrictive'])) {
+            $query = $this->applyWhere($where, $query, $parent_tables);
           }
         }
       }
       return $query;
     }
-
-    private function applyNestedWheres($wheres, $query, $parent_tables = null) {
-  		if (isset($wheres['children'])) {
-  			foreach ($wheres['children'] as $table => $where_child) {
-  				$query->whereHas($table, function($query) use ($where_child, $parent_tables, $table) {
-  					$parent_tables = ($parent_tables ? $parent_tables : []);
-  					$parent_tables[] = $table;
-  					$this->applyNestedWheres($where_child, $query, $parent_tables);
-  				});
-  			}
-  		}
-		  if (isset($wheres['wheres'])) {
-			  $wheres['wheres'] = $this->determineIn($wheres['wheres']);
-
-  			foreach ($wheres['wheres'] as $where) {
-  				$column = $where['key'];
-
-  				if (is_null($parent_tables)) {	//only check on the top level for excluded params
-  					 if ($this->isExcludedParameter($where['key'])) {
-  						continue;
-  					}
-
-  					if ($this->hasCustomFilter($where['key'])) {
-  						$this->applyCustomFilter($where['key'], $where['operator'], $where['value']);
-  					}
-  				}
-
-  				if (!($model = $this->getTableRelation($parent_tables))) {
-  					throw new UnknownRelationException("Unknown relation '".$where['key']."'");
-  				}
-
-  				if (!$this->hasTableColumn($column, $model)) {
-  					throw new UnknownColumnException("Unknown column '".$where['key']."'");
-  				}
-
-  				$column = $model->getTable().'.'.$column;
-  				if ($where['operator'] == 'in') {
-            $null_key = array_search('null', $where['value']);
-            if ($null_key !== false) {
-              $query->whereNull($column);
-              unset($where['value'][$null_key]);
-            }
-            if (count($where['value']) > 1) {
-  					  $query->orWhereIn($column, $where['value']);
-            }
-            else {
-              $query->orWhere($column, '=', $where['value']);
-            }
-  				}
-  				else {
-            if (is_null($where['value'])) {
-              $query->whereNull($column);
-            }
-            else {
-              $query->where($column, $where['operator'], $where['value']);
-            }
-  				}
-  			}
-		}
-		return $query;
-	}
 
 	private function determineIn($wheres) {
 		$ors = [];
