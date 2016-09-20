@@ -66,7 +66,7 @@ class QueryBuilder {
         $this->prepare();
 
         if ($this->hasWheres() || $this->hasIncludes()) {
-            $this->applyNestedWheres($this->processed_wheres, $this->query);
+            $this->applyNestedWheres($this->processed_wheres, $this->query, $this->model);
         }
 
         if ($this->hasGroupBy()) {
@@ -82,8 +82,6 @@ class QueryBuilder {
         }
 
         array_map([$this, 'addOrderByToQuery'], $this->orderBy);
-
-        $this->query->select($this->columns);
 
         return $this;
     }
@@ -128,6 +126,17 @@ class QueryBuilder {
       $this->setWheres($raw_wheres);
 
       $with = [];
+
+      foreach ($this->columns as $column) {
+        $tables = explode('.', $column);
+        $column = array_pop($tables);
+        $with_ptr = &$with;
+        foreach ($tables as $table) {
+          $with_ptr = &$with_ptr['children'][$table];
+        }
+        $with_ptr['select'][] = $column;
+      }
+
       foreach ($this->includesDeleted as $include) {     //check the includes map to a valid relation
         //special case for top level
         if ($include == 'true') {
@@ -168,7 +177,7 @@ class QueryBuilder {
       $this->setProcessedWheres($with);
 
       if ($this->hasIncludes() && $this->hasRelationColumns()) {
-          $this->fixRelationColumns();
+          //$this->fixRelationColumns();
       }
 
       return $this;
@@ -242,47 +251,7 @@ class QueryBuilder {
     }
 
     private function setColumns($columns) {
-        $columns = array_filter(explode(',', $columns));
-
-        $this->columns = $this->relationColumns = [];
-
-        array_map([$this, 'setColumn'], $columns);
-    }
-
-    private function setColumn($column) {
-        if ($this->isRelationColumn($column)) {
-            return $this->appendRelationColumn($column);
-        }
-
-        $this->columns[] = $column;
-    }
-
-    private function appendRelationColumn($keyAndColumn) {
-        list($key, $column) = explode('.', $keyAndColumn);
-
-        $this->relationColumns[$key][] = $column;
-    }
-
-    private function fixRelationColumns() {
-        $keys = array_keys($this->relationColumns);
-
-        $callback = [$this, 'fixRelationColumn'];
-
-        array_map($callback, $keys, $this->relationColumns);
-    }
-
-    private function fixRelationColumn($key, $columns) {
-        $index = array_search($key, $this->includes);
-
-        unset($this->includes[$index]);
-
-        $this->includes[$key] = $this->closureRelationColumns($columns);
-    }
-
-    private function closureRelationColumns($columns) {
-        return function($q) use ($columns) {
-            $q->select($columns);
-        };
+        $this->columns = array_filter(explode(',', $columns));
     }
 
     private function setOrderBy($order) {
@@ -325,12 +294,8 @@ class QueryBuilder {
         $this->processed_wheres = $parameters;
     }
 
-    private function applyWhere($where, $query, $parent_tables = null) {
+    private function applyWhere($where, $query, $model) {
       $column = $where['key'];
-
-      if (!($model = $this->getTableRelation($parent_tables))) {
-        throw new UnknownRelationException("Unknown relation '".$where['key']."'");
-      }
 
       if (!$this->hasTableColumn($column, $model)) {
         throw new UnknownColumnException("Unknown column '".$where['key']."'");
@@ -361,33 +326,47 @@ class QueryBuilder {
       return $query;
     }
 
-    private function applyNestedWheres($wheres, $query, $parent_tables = null, $restrictive = null) {
+    private function applyNestedWheres($wheres, $query, $model, $restrictive = null) {
+      //include soft deleted items (todo: check model has soft deleted trait?)
       if (isset($wheres['include_deleted']) && $wheres['include_deleted']) {
-        $query = $query->withTrashed();
+        $query->withTrashed();
       }
+
+      //apply the column filters
+      if (isset($wheres['select']) && $wheres['select']) {
+        $query->select($wheres['select']);
+      }
+
+      //handle the nested includes / wheres
       if (isset($wheres['children'])) {
         foreach ($wheres['children'] as $table => $where_child) {
+          //check relation validity
+          $child_model = $this->getRelatedModel([$table], $model);
+          //$relationship = $this->getRelationship($table, $model);
+          //dd($relationship);
+          if (!$child_model) {
+            throw new UnknownRelationException("Unknown relation '".$table."'");
+          }
+          //include the relations results
           if (isset($where_child['include']) && $where_child['include']) {
-            $query->with([$table => function($sub_query) use ($where_child, $parent_tables, $table) {
-              $parent_tables = ($parent_tables ? $parent_tables : []);
-              $parent_tables[] = $table;
-              $this->applyNestedWheres($where_child, $sub_query, $parent_tables);
+            $query->with([$table => function($sub_query) use ($where_child, $child_model) {
+              $this->applyNestedWheres($where_child, $sub_query, $child_model);
             }]);
           }
+          //limit the parent models results if restrictive is not strict false
           if ($where_child['restrictive'] || is_null($where_child['restrictive'])) {
-            $query->whereHas($table, function($sub_query) use ($where_child, $parent_tables, $table) {
-              $parent_tables = ($parent_tables ? $parent_tables : []);
-              $parent_tables[] = $table;
-              $this->applyNestedWheres($where_child, $sub_query, $parent_tables, true);
+            $query->whereHas($table, function($sub_query) use ($where_child, $child_model) {
+              $this->applyNestedWheres($where_child, $sub_query, $child_model, true);
             });
           }
         }
       }
+      //apply the where clauses to the query
       if (isset($wheres['wheres'])) {
         $wheres['wheres'] = $this->determineIn($wheres['wheres']);
 
         foreach ($wheres['wheres'] as $where) {
-          if (is_null($parent_tables)) {	//only check on the top level for excluded params
+          if ($model == $this->model) {	//only check on the top level for excluded params
              if ($this->isExcludedParameter($where['key'])) {
               continue;
             }
@@ -398,7 +377,7 @@ class QueryBuilder {
           }
 
           if (is_null($restrictive) || ($restrictive && $where['restrictive'])) {
-            $query = $this->applyWhere($where, $query, $parent_tables);
+            $query = $this->applyWhere($where, $query, $model);
           }
         }
       }
@@ -479,19 +458,27 @@ class QueryBuilder {
         return (count($this->relationColumns) > 0);
     }
 
-    private function getTableRelation($tables) {
-      $model = $this->model;
+    private function getRelatedModel($tables, $model = null) {
+      $model = (!is_null($model) ? $model : $this->model);
+      while (sizeof($tables) > 0) {
+          $method = array_shift($tables);
+          $relationship = $this->getRelationship($method, $model);
+          if (!$relationship) {
+            return false;
+          }
+          $model = $relationship->getRelated();
+      }
+      return $model;
+    }
+
+    private function getRelationship($relation, $model) {
       try {
-        while (sizeof($tables) > 0) {
-            $method = array_shift($tables);
-            $relationship = $model->$method();
-            $model = $relationship->getRelated();
-        }
+        $relationship = $model->$relation();
       }
       catch (Exception $ex) {
         return false;
       }
-      return $model;
+      return $relationship;
     }
 
     private function hasTableColumn($column, $model = null) {
