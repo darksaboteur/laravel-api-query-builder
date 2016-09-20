@@ -3,13 +3,15 @@
 namespace Unlu\Laravel\Api;
 
 use Exception;
-use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Request;
+use Unlu\Laravel\Api\UriParser;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Database\Eloquent\Model;
 use Unlu\Laravel\Api\Exceptions\UnknownColumnException;
 use Unlu\Laravel\Api\Exceptions\UnknownRelationException;
-use Unlu\Laravel\Api\UriParser;
+use Illuminate\Database\Eloquent\Relations\HasOneOrMany;
+use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 
 class QueryBuilder {
     protected $model;
@@ -332,21 +334,59 @@ class QueryBuilder {
         $query->withTrashed();
       }
 
-      //apply the column filters
-      if (isset($wheres['select']) && $wheres['select']) {
-        $query->select($wheres['select']);
-      }
+      //get the current column select criteria (null means it will not be applied)
+      $select = (isset($wheres['select']) && $wheres['select'] ? $wheres['select'] : null);
 
       //handle the nested includes / wheres
       if (isset($wheres['children'])) {
         foreach ($wheres['children'] as $table => $where_child) {
           //check relation validity
-          $child_model = $this->getRelatedModel([$table], $model);
-          //$relationship = $this->getRelationship($table, $model);
-          //dd($relationship);
+          $relationship = $this->getRelationship($table, $model);
+          $child_model = $relationship->getRelated();
           if (!$child_model) {
             throw new UnknownRelationException("Unknown relation '".$table."'");
           }
+
+          //the following automatically adds foriegn and primary keys needed by relations when columns are in use
+          $isHasOneOrMany = ($relationship instanceof HasOneOrMany);
+          $isHasManyThrough = ($relationship instanceof HasManyThrough);
+
+          if ($select) {
+            $key = null;
+            if (!$isHasManyThrough && method_exists($relationship, 'getQualifiedParentKeyName')) {
+              $key = $relationship->getQualifiedParentKeyName();
+            }
+            elseif ($isHasManyThrough && method_exists($relationship, 'getHasCompareKey')) {
+              $key = $relationship->getHasCompareKey();
+            }
+            elseif (!$isHasOneOrMany && !$isHasManyThrough && method_exists($relationship, 'getForeignKey')) {
+              $key = $relationship->getForeignKey();
+            }
+
+            if ($key) {
+              if (!in_array($key, $select)) {
+                $select[] = $key;
+              }
+            }
+          }
+
+          if (isset($where_child['select']) && $where_child['select']) {
+            $key = null;
+
+            //belongsTo
+            if (method_exists($relationship, 'getOtherKey')) {
+              $key = $relationship->getOtherKey();
+            }
+            elseif (($isHasOneOrMany || $isHasManyThrough) && method_exists($relationship, 'getForeignKey')) {
+              $key = $relationship->getForeignKey();
+            }
+            if ($key) {
+              if (!in_array($key, $where_child['select'])) {
+                $where_child['select'][] = $key;
+              }
+            }
+          }
+
           //include the relations results
           if (isset($where_child['include']) && $where_child['include']) {
             $query->with([$table => function($sub_query) use ($where_child, $child_model) {
@@ -361,6 +401,11 @@ class QueryBuilder {
           }
         }
       }
+      //apply the column filters
+      if ($select) {
+        $query->select($select);
+      }
+
       //apply the where clauses to the query
       if (isset($wheres['wheres'])) {
         $wheres['wheres'] = $this->determineIn($wheres['wheres']);
