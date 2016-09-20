@@ -403,7 +403,10 @@ class QueryBuilder {
       }
       //apply the column filters
       if ($select) {
-        $query->select($select);
+        $query->select(array_map(function($val) use ($model) {
+          //qualify with the model table if its not supplied
+          return (count(explode('.', $val)) == 1 ? $model->getTable().'.' : '').$val;
+        }, $select));
       }
 
       //apply the where clauses to the query
