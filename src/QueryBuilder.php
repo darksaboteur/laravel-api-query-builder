@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Database\Eloquent\Model;
 use Unlu\Laravel\Api\Exceptions\UnknownColumnException;
 use Unlu\Laravel\Api\Exceptions\UnknownRelationException;
+use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Database\Eloquent\Relations\HasOneOrMany;
 use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 
@@ -343,9 +344,6 @@ class QueryBuilder {
           //check relation validity
           $relationship = $this->getRelationship($table, $model);
           $child_model = $relationship->getRelated();
-          if (!$child_model) {
-            throw new UnknownRelationException("Unknown relation '".$table."'");
-          }
 
           //the following automatically adds foriegn and primary keys needed by relations when columns are in use
           $isHasOneOrMany = ($relationship instanceof HasOneOrMany);
@@ -511,9 +509,6 @@ class QueryBuilder {
       while (sizeof($tables) > 0) {
           $method = array_shift($tables);
           $relationship = $this->getRelationship($method, $model);
-          if (!$relationship) {
-            return false;
-          }
           $model = $relationship->getRelated();
       }
       return $model;
@@ -521,12 +516,26 @@ class QueryBuilder {
 
     private function getRelationship($relation, $model) {
       try {
+        if (!method_exists($model, $relation)) {
+          throw new Exception('Relationship does not exist');
+        }
         $relationship = $model->$relation();
+        if (!$relationship instanceof Relation) {
+          throw new Exception('Relationship method exists but is not an instance of Relation');
+        }
       }
       catch (Exception $ex) {
-        return false;
+          throw new UnknownRelationException("Unknown relation '".$relation."' on ".$this->get_class_name($model));
       }
       return $relationship;
+    }
+
+    private function get_class_name($classname) {
+      $classname = (is_object($classname) ? get_class($classname) : $classname);
+      if ($pos = strrpos($classname, '\\')) {
+        return substr($classname, $pos + 1);
+      }
+      return $pos;
     }
 
     private function hasTableColumn($column, $model = null) {
