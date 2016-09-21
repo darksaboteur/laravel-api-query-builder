@@ -434,7 +434,7 @@ class QueryBuilder {
     }
 
 	private function determineIn($wheres) {
-		$ors = [];
+		$ors = $others = [];
 		foreach ($wheres as $i => $where) {
 			if ($where['operator'] == '=') {
 				if (!isset($ors[$where['key']])) {
@@ -442,6 +442,9 @@ class QueryBuilder {
 				}
 				$ors[$where['key']][] = $where;
 			}
+      else {
+        $others[] = $where;
+      }
 		}
 
 		foreach ($ors as $key => $or) {
@@ -458,7 +461,7 @@ class QueryBuilder {
         $ors[$key]['value'] = $values;
       }
 		}
-		return array_values($ors);
+		return array_merge(array_values($ors), $others);
 	}
 
     private function addOrderByToQuery($order) {
