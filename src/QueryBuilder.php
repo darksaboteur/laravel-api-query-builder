@@ -365,7 +365,7 @@ class QueryBuilder {
             }
 
             if ($key) {
-              if (!in_array($key, $select)) {
+              if (!in_array('*', $select) && !in_array($key, $select)) {
                 $select[] = $key;
               }
             }
@@ -382,7 +382,7 @@ class QueryBuilder {
               $key = $relationship->getForeignKey();
             }
             if ($key) {
-              if (!in_array($key, $where_child['select'])) {
+              if (!in_array('*', $where_child['select']) && !in_array($key, $where_child['select'])) {
                 $where_child['select'][] = $key;
               }
             }
