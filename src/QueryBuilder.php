@@ -306,17 +306,20 @@ class QueryBuilder {
 
       $column = $model->getTable().'.'.$column;
       if ($where['operator'] == 'in') {
-        $null_key = array_search('null', $where['value']);
-        if ($null_key !== false) {
-          $query->whereNull($column);
-          unset($where['value'][$null_key]);
-        }
-        if (count($where['value']) > 1) {
-          $query->orWhereIn($column, $where['value']);
-        }
-        else {
-          $query->orWhere($column, '=', $where['value']);
-        }
+        $query->where(function($query) use ($where, $column) {
+          if (count($where['value']) > 1) {
+            $query->whereIn($column, $where['value']);
+          }
+          else {
+            $query->where($column, '=', $where['value']);
+          }
+
+          $null_key = array_search('null', $where['value']);
+          if ($null_key !== false) {
+            $query->orWhereIsNull($column);
+            unset($where['value'][$null_key]);
+          }
+        });
       }
       else {
         if (is_null($where['value'])) {
@@ -432,28 +435,30 @@ class QueryBuilder {
 
 	private function determineIn($wheres) {
 		$ors = [];
-		foreach ($wheres as $where) {
+		foreach ($wheres as $i => $where) {
 			if ($where['operator'] == '=') {
 				if (!isset($ors[$where['key']])) {
 					$ors[$where['key']] = [];
 				}
-				$ors[$where['key']][] = $where['value'];
+				$ors[$where['key']][] = $where;
 			}
 		}
 
 		foreach ($ors as $key => $or) {
-			if (sizeof($or) <= 1) {
-				unset($ors[$key]);
+			if (sizeof($or) == 1) {
+        $ors[$key] = $or[0];
 			}
+      else {
+        $values = [];
+        foreach ($or as $item) {
+          $values[] = $item['value'];
+        }
+        $ors[$key] = $or[0];
+        $ors[$key]['operator'] = 'in';
+        $ors[$key]['value'] = $values;
+      }
 		}
-
-		foreach ($wheres as $i => $where) {
-			if (in_array($where['key'], array_keys($ors))) {
-				$wheres[$i]['operator'] = 'in';
-				$wheres[$i]['value'] = $ors[$where['key']];
-			}
-		}
-		return $wheres;
+		return array_values($ors);
 	}
 
     private function addOrderByToQuery($order) {
