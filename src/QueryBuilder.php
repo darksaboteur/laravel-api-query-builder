@@ -68,7 +68,7 @@ class QueryBuilder {
     public function build() {
         $this->prepare();
 
-        if ($this->hasWheres() || $this->hasIncludes()) {
+        if ($this->processed_wheres) {
             $this->applyNestedWheres($this->processed_wheres, $this->query, $this->model);
         }
 
