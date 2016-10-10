@@ -8,10 +8,10 @@ use Unlu\Laravel\Api\UriParser;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Database\Eloquent\Model;
-use Unlu\Laravel\Api\Exceptions\UnknownColumnException;
-use Unlu\Laravel\Api\Exceptions\UnknownRelationException;
 use Illuminate\Database\Eloquent\Relations\Relation;
+use Unlu\Laravel\Api\Exceptions\UnknownColumnException;
 use Illuminate\Database\Eloquent\Relations\HasOneOrMany;
+use Unlu\Laravel\Api\Exceptions\UnknownRelationException;
 use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 
 class QueryBuilder {
@@ -65,26 +65,28 @@ class QueryBuilder {
         $this->query = $this->model->newQuery();
     }
 
-    public function build() {
+    public function build($include_where = true, $offset = true, $limit = true, $group_by = true, $order_by = true) {
         $this->prepare();
 
-        if ($this->processed_wheres) {
+        if ($include_where && $this->processed_wheres) {
             $this->applyNestedWheres($this->processed_wheres, $this->query, $this->model);
         }
 
-        if ($this->hasGroupBy()) {
+        if ($group_by && $this->hasGroupBy()) {
             $this->query->groupBy($this->groupBy);
         }
 
-        if ($this->hasLimit()) {
+        if ($limit && $this->hasLimit()) {
             $this->query->take($this->limit);
         }
 
-        if ($this->hasOffset()) {
+        if ($offset && $this->hasOffset()) {
             $this->query->skip($this->offset);
         }
 
-        array_map([$this, 'addOrderByToQuery'], $this->orderBy);
+        if ($order_by) {
+          array_map([$this, 'addOrderByToQuery'], $this->orderBy);
+        }
 
         return $this;
     }
@@ -120,13 +122,22 @@ class QueryBuilder {
         return $this->wheres;
     }
 
+    public function addExcludedParameter($key) {
+      if (!$this->isExcludedParameter($key)) {
+        $this->excludedParameters[] = $key;
+      }
+    }
+
     protected function prepare() {
       $constantParameters = $this->uriParser->constantParameters();
 
       array_map([$this, 'prepareConstant'], $constantParameters);
 
-  		$raw_wheres = $this->uriParser->whereParameters();
-      $this->setWheres($raw_wheres);
+  		foreach ($this->uriParser->whereParameters() as $raw_where) {
+        $this->addWhere($raw_where['key'], $raw_where['operator'], $raw_where['value'], $raw_where['restrictive']);
+      }
+
+      $raw_wheres = $this->wheres();
 
       $with = [];
 
@@ -233,14 +244,14 @@ class QueryBuilder {
         call_user_func($callback, $callbackParameter['value']);
     }
 
-    private function addInclude($include) {
+    public function addInclude($include) {
       if (!in_array($include, $this->includes)) {
         $this->includes[] = $include;
       }
     }
 
-    private function setIncludes($includes) {
-        $this->includes = array_filter(explode(',', $includes));
+    public function setIncludes($includes) {
+        $this->includes = array_filter(is_array($includes) ? $includes : explode(',', $includes));
     }
 
     private function setIncludesDeleted($includes) {
@@ -287,6 +298,15 @@ class QueryBuilder {
         $limit = ($limit == 'unlimited') ? null : (int) $limit;
 
         $this->limit = $limit;
+    }
+
+    public function addWhere($key, $operator, $value, $restrictive = true) {
+        $this->wheres[] = [
+          'key' => $key,
+          'operator' => $operator,
+          'restrictive' => $restrictive,
+          'value' => $value
+        ];
     }
 
     private function setWheres($parameters) {
