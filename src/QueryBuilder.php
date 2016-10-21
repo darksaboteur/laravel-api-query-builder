@@ -546,7 +546,7 @@ class QueryBuilder {
       return $model;
     }
 
-    private function getRelationship($relation, $model) {
+    public function getRelationship($relation, $model) {
       try {
         if (!method_exists($model, $relation)) {
           throw new Exception('Relationship does not exist');
