@@ -349,6 +349,13 @@ class QueryBuilder {
         if (is_null($where['value'])) {
           $query->whereNull($column);
         }
+        elseif (is_array($where['value'])) {
+          $query->where(function($query) use ($where, $column) {
+            foreach ($where['value'] as $value) {
+              $query->orWhere($column, $where['operator'], $value);
+            }
+          });
+        }
         else {
           $query->where($column, $where['operator'], $where['value']);
         }
@@ -458,34 +465,55 @@ class QueryBuilder {
     }
 
 	private function determineIn($wheres) {
-		$ors = $others = [];
+		$in_ors = $like_ors = $others = [];
 		foreach ($wheres as $i => $where) {
 			if ($where['operator'] == '=') {
-				if (!isset($ors[$where['key']])) {
-					$ors[$where['key']] = [];
+				if (!isset($in_ors[$where['key']])) {
+					$in_ors[$where['key']] = [];
 				}
-				$ors[$where['key']][] = $where;
+				$in_ors[$where['key']][] = $where;
+			}
+      elseif ($where['operator'] == 'like') {
+				if (!isset($like_ors[$where['key']])) {
+					$like_ors[$where['key']] = [];
+				}
+				$like_ors[$where['key']][] = $where;
 			}
       else {
         $others[] = $where;
       }
 		}
 
-		foreach ($ors as $key => $or) {
+		foreach ($in_ors as $key => $or) {
 			if (sizeof($or) == 1) {
-        $ors[$key] = $or[0];
+        $in_ors[$key] = $or[0];
 			}
       else {
         $values = [];
         foreach ($or as $item) {
           $values[] = $item['value'];
         }
-        $ors[$key] = $or[0];
-        $ors[$key]['operator'] = 'in';
-        $ors[$key]['value'] = $values;
+        $in_ors[$key] = $or[0];
+        $in_ors[$key]['operator'] = 'in';
+        $in_ors[$key]['value'] = $values;
       }
 		}
-		return array_merge(array_values($ors), $others);
+
+    foreach ($like_ors as $key => $or) {
+			if (sizeof($or) == 1) {
+        $like_ors[$key] = $or[0];
+			}
+      else {
+        $values = [];
+        foreach ($or as $item) {
+          $values[] = $item['value'];
+        }
+        $like_ors[$key] = $or[0];
+        $like_ors[$key]['operator'] = 'like';
+        $like_ors[$key]['value'] = $values;
+      }
+		}
+		return array_merge(array_values($in_ors), array_values($like_ors), $others);
 	}
 
     private function addOrderByToQuery($order) {
