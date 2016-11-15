@@ -318,48 +318,59 @@ class QueryBuilder {
     }
 
     private function applyWhere($where, $query, $model) {
-      $column = $where['key'];
-
-      if (!$this->hasTableColumn($column, $model)) {
-        throw new UnknownColumnException("Unknown column '".$where['key']."'");
-      }
-
-      $column = $model->getTable().'.'.$column;
-      if ($where['operator'] == 'in') {
-        $query->where(function($query) use ($where, $column) {
-          $values = array_filter($where['value'], function($var) {
-            return !is_null($var) && $var != 'null';
-          });
-
-          if (count($values) > 1) {
-            $query->whereIn($column, $values);
-          }
-          else {
-            $query->where($column, '=', $values);
-          }
-
-          $null_key = array_search('null', $where['value']);
-          if ($null_key !== false) {
-            $query->orWhereNull($column);
-            unset($where['value'][$null_key]);
-          }
-        });
+      if ($where['operator'] == 'has') {
+        if ($where['value']) {
+          $query->has($where['key']);
+        }
+        else {
+          $query->doesntHave($where['key']);
+        }
       }
       else {
-        if (is_null($where['value'])) {
-          $query->whereNull($column);
+        $column = $where['key'];
+
+        if (!$this->hasTableColumn($column, $model)) {
+          throw new UnknownColumnException("Unknown column '".$column."'");
         }
-        elseif (is_array($where['value'])) {
+
+        $column = $model->getTable().'.'.$column;
+        if ($where['operator'] == 'in') {
           $query->where(function($query) use ($where, $column) {
-            foreach ($where['value'] as $value) {
-              $query->orWhere($column, $where['operator'], $value);
+            $values = array_filter($where['value'], function($var) {
+              return !is_null($var) && $var != 'null';
+            });
+
+            if (count($values) > 1) {
+              $query->whereIn($column, $values);
+            }
+            else {
+              $query->where($column, '=', $values);
+            }
+
+            $null_key = array_search('null', $where['value']);
+            if ($null_key !== false) {
+              $query->orWhereNull($column);
+              unset($where['value'][$null_key]);
             }
           });
         }
         else {
-          $query->where($column, $where['operator'], $where['value']);
+          if (is_null($where['value'])) {
+            $query->whereNull($column);
+          }
+          elseif (is_array($where['value'])) {
+            $query->where(function($query) use ($where, $column) {
+              foreach ($where['value'] as $value) {
+                $query->orWhere($column, $where['operator'], $value);
+              }
+            });
+          }
+          else {
+            $query->where($column, $where['operator'], $where['value']);
+          }
         }
       }
+
       return $query;
     }
 
