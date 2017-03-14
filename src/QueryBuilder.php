@@ -395,6 +395,10 @@ class QueryBuilder {
           $isHasManyThrough = ($relationship instanceof HasManyThrough);
 
           if ($select) {
+            foreach($select as $i => $select_item) {     //prepend table names to the column if not provided
+              $select[$i] = (count(explode('.', $select_item)) == 1 ? $model->getTable().'.' : '').$select_item;
+            }
+
             $key = null;
             if (!$isHasManyThrough && method_exists($relationship, 'getQualifiedParentKeyName')) {
               $key = $relationship->getQualifiedParentKeyName();
