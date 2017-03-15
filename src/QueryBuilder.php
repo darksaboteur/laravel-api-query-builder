@@ -394,7 +394,7 @@ class QueryBuilder {
           $isHasOneOrMany = ($relationship instanceof HasOneOrMany);
           $isHasManyThrough = ($relationship instanceof HasManyThrough);
 
-          if ($select) {
+          if ($select && !(sizeof($select) == 1 && $select[0] == '*')) {    //ignore the select * (all)
             foreach($select as $i => $select_item) {     //prepend table names to the column if not provided
               $select[$i] = (count(explode('.', $select_item)) == 1 ? $model->getTable().'.' : '').$select_item;
             }
