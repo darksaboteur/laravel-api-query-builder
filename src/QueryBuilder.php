@@ -134,7 +134,7 @@ class QueryBuilder {
       array_map([$this, 'prepareConstant'], $constantParameters);
 
   		foreach ($this->uriParser->whereParameters() as $raw_where) {
-        $this->addWhere($raw_where['key'], $raw_where['operator'], $raw_where['value'], $raw_where['restrictive']);
+        $this->addWhere($raw_where['key'], $raw_where['operator'], $raw_where['value'], $raw_where['restrictive'], $raw_where['unmatched']);
       }
 
       $raw_wheres = $this->wheres();
@@ -300,11 +300,12 @@ class QueryBuilder {
         $this->limit = $limit;
     }
 
-    public function addWhere($key, $operator, $value, $restrictive = true) {
+    public function addWhere($key, $operator, $value, $restrictive = true, $unmatched = false) {
         $this->wheres[] = [
           'key' => $key,
           'operator' => $operator,
           'restrictive' => $restrictive,
+          'unmatched' => $unmatched,
           'value' => $value
         ];
     }
@@ -374,7 +375,7 @@ class QueryBuilder {
       return $query;
     }
 
-    private function applyNestedWheres($wheres, $query, $model, $restrictive = null) {
+    private function applyNestedWheres($wheres, $query, $model, $restrictive = null, $isWith = null) {
       //include soft deleted items (todo: check model has soft deleted trait?)
       if (isset($wheres['include_deleted']) && $wheres['include_deleted']) {
         $query->withTrashed();
@@ -437,13 +438,13 @@ class QueryBuilder {
           //include the relations results
           if (isset($where_child['include']) && $where_child['include']) {
             $query->with([$table => function($sub_query) use ($where_child, $child_model) {
-              $this->applyNestedWheres($where_child, $sub_query, $child_model);
+              $this->applyNestedWheres($where_child, $sub_query, $child_model, null, true);
             }]);
           }
           //limit the parent models results if restrictive is not strict false
           if ($where_child['restrictive'] || is_null($where_child['restrictive'])) {
             $query->whereHas($table, function($sub_query) use ($where_child, $child_model) {
-              $this->applyNestedWheres($where_child, $sub_query, $child_model, true);
+              $this->applyNestedWheres($where_child, $sub_query, $child_model, true, false);
             });
           }
         }
@@ -471,7 +472,7 @@ class QueryBuilder {
             }
           }
 
-          if (is_null($restrictive) || ($restrictive && $where['restrictive'])) {
+          if (!($isWith && $where['unmatched']) && (is_null($restrictive) || ($restrictive && $where['restrictive']))) {
             $query = $this->applyWhere($where, $query, $model);
           }
         }

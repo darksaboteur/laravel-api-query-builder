@@ -80,6 +80,7 @@ class UriParser  {
     private function appendQueryParameter($parameter) {
         preg_match($this->pattern, $parameter, $matches);
         $restrictive = true;
+        $unmatched = false;
         if (!$matches) {
           $key = $parameter;
           $operator = 'has';
@@ -99,6 +100,12 @@ class UriParser  {
             $key = substr($key, 1);
           }
 
+          if (substr($key, 0, 1) == '^') {
+            $restrictive = true;
+            $unmatched = true;
+            $key = substr($key, 1);
+          }
+
           if (!$this->isConstantParameter($key) && $this->isLikeQuery($value)) {
               $operator = 'like';
               $value = str_replace('*', '%', $value);
@@ -109,6 +116,7 @@ class UriParser  {
             'key' => $key,
             'operator' => $operator,
             'restrictive' => $restrictive,
+            'unmatched' => $unmatched,
             'value' => $value
         ];
     }
