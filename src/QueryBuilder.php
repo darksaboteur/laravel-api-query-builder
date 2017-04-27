@@ -348,7 +348,7 @@ class QueryBuilder {
               $query->where($column, '=', $values);
             }
 
-            $null_key = array_search('null', $where['value']);
+            $null_key = array_search(null, $where['value']);
             if ($null_key !== false) {
               $query->orWhereNull($column);
               unset($where['value'][$null_key]);
