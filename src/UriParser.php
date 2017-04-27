@@ -117,7 +117,7 @@ class UriParser  {
             'operator' => $operator,
             'restrictive' => $restrictive,
             'unmatched' => $unmatched,
-            'value' => $value
+            'value' =>  ($value === 'null' ? null : $value),
         ];
     }
 

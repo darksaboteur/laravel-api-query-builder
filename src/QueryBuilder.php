@@ -338,7 +338,7 @@ class QueryBuilder {
         if ($where['operator'] == 'in') {
           $query->where(function($query) use ($where, $column) {
             $values = array_filter($where['value'], function($var) {
-              return !is_null($var) && $var != 'null';
+              return !is_null($var);
             });
 
             if (count($values) > 1) {
@@ -357,7 +357,12 @@ class QueryBuilder {
         }
         else {
           if (is_null($where['value'])) {
-            $query->whereNull($column);
+            if ($where['operator'] == '!=') {
+              $query->whereNotNull($column);
+            }
+            else {
+              $query->whereNull($column);
+            }
           }
           elseif (is_array($where['value'])) {
             $query->where(function($query) use ($where, $column) {
