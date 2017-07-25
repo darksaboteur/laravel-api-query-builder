@@ -355,6 +355,26 @@ class QueryBuilder {
             }
           });
         }
+        elseif ($where['operator'] == 'not in') {
+          $query->where(function($query) use ($where, $column) {
+            $values = array_filter($where['value'], function($var) {
+              return !is_null($var);
+            });
+
+            if (count($values) > 1) {
+              $query->whereNotIn($column, $values);
+            }
+            else {
+              $query->where($column, '!=', $values);
+            }
+
+            $null_key = array_search(null, $where['value']);
+            if ($null_key !== false) {
+              $query->whereNotNull($column);
+              unset($where['value'][$null_key]);
+            }
+          });
+        }
         else {
           if (is_null($where['value'])) {
             if ($where['operator'] == '!=') {
@@ -486,13 +506,19 @@ class QueryBuilder {
     }
 
 	private function determineIn($wheres) {
-		$in_ors = $like_ors = $others = [];
+		$in_ors = $not_in_ors = $like_ors = $others = [];
 		foreach ($wheres as $i => $where) {
 			if ($where['operator'] == '=') {
 				if (!isset($in_ors[$where['key']])) {
 					$in_ors[$where['key']] = [];
 				}
 				$in_ors[$where['key']][] = $where;
+			}
+      elseif ($where['operator'] == '!=') {
+				if (!isset($not_in_ors[$where['key']])) {
+					$not_in_ors[$where['key']] = [];
+				}
+				$not_in_ors[$where['key']][] = $where;
 			}
       elseif ($where['operator'] == 'like') {
 				if (!isset($like_ors[$where['key']])) {
@@ -520,6 +546,21 @@ class QueryBuilder {
       }
 		}
 
+    foreach ($not_in_ors as $key => $or) {
+			if (sizeof($or) == 1) {
+        $not_in_ors[$key] = $or[0];
+			}
+      else {
+        $values = [];
+        foreach ($or as $item) {
+          $values[] = $item['value'];
+        }
+        $not_in_ors[$key] = $or[0];
+        $not_in_ors[$key]['operator'] = 'not in';
+        $not_in_ors[$key]['value'] = $values;
+      }
+		}
+
     foreach ($like_ors as $key => $or) {
 			if (sizeof($or) == 1) {
         $like_ors[$key] = $or[0];
@@ -534,7 +575,7 @@ class QueryBuilder {
         $like_ors[$key]['value'] = $values;
       }
 		}
-		return array_merge(array_values($in_ors), array_values($like_ors), $others);
+		return array_merge(array_values($in_ors), array_values($not_in_ors), array_values($like_ors), $others);
 	}
 
     private function addOrderByToQuery($order) {
