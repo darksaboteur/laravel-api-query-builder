@@ -107,7 +107,7 @@ class UriParser  {
           }
 
           if (!$this->isConstantParameter($key) && $this->isLikeQuery($value)) {
-              $operator = 'like';
+              $operator = (substr($operator, 0, 1) == '!' ? 'not like' : 'like');
               $value = str_replace('*', '%', $value);
           }
         }
