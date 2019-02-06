@@ -49,6 +49,8 @@ class QueryBuilder {
 
     protected $modelNamespace = '';
 
+    protected $appends = [];
+
     public function __construct(Model $model, Request $request) {
         $this->orderBy = config('api-query-builder.orderBy');
 
@@ -120,6 +122,10 @@ class QueryBuilder {
 
     public function wheres() {
         return $this->wheres;
+    }
+
+    public function appends() {
+      return $this->appends;
     }
 
     public function addExcludedParameter($key) {
@@ -400,7 +406,7 @@ class QueryBuilder {
       return $query;
     }
 
-    private function applyNestedWheres($wheres, $query, $model, $restrictive = null, $isWith = null) {
+    private function applyNestedWheres($wheres, $query, $model, $restrictive = null, $isWith = null, $depth = '') {
       //include soft deleted items (todo: check model has soft deleted trait?)
       if (isset($wheres['include_deleted']) && $wheres['include_deleted']) {
         $query->withTrashed();
@@ -409,9 +415,24 @@ class QueryBuilder {
       //get the current column select criteria (null means it will not be applied)
       $select = (isset($wheres['select']) && $wheres['select'] ? $wheres['select'] : null);
 
+      //this gets the fields marked as computed, removes them from the select and adds them to appends ie. Not in the database
+      if (is_array($select) && method_exists($model, 'getComputed')) {
+        $computed = $model->getComputed();
+        foreach ($select as $i => $column) {
+          if (in_array($column, $computed)) {
+            $appends_path = $depth.($depth ? '.' : '').$column;
+            if (!in_array($appends_path, $this->appends)) {
+              $this->appends[] = $appends_path;
+            }
+            unset($select[$i]);
+          }
+        }
+      }
+
       //handle the nested includes / wheres
       if (isset($wheres['children'])) {
         foreach ($wheres['children'] as $table => $where_child) {
+          $new_depth = $depth.($depth ? '.' : '').$table;
           //check relation validity
           $relationship = $this->getRelationship($table, $model);
           $child_model = $relationship->getRelated();
@@ -462,14 +483,14 @@ class QueryBuilder {
 
           //include the relations results
           if (isset($where_child['include']) && $where_child['include']) {
-            $query->with([$table => function($sub_query) use ($where_child, $child_model) {
-              $this->applyNestedWheres($where_child, $sub_query, $child_model, null, true);
+            $query->with([$table => function($sub_query) use ($where_child, $child_model, $new_depth) {
+              $this->applyNestedWheres($where_child, $sub_query, $child_model, null, true, $new_depth);
             }]);
           }
           //limit the parent models results if restrictive is not strict false
           if ($where_child['restrictive'] || is_null($where_child['restrictive'])) {
-            $query->whereHas($table, function($sub_query) use ($where_child, $child_model) {
-              $this->applyNestedWheres($where_child, $sub_query, $child_model, true, false);
+            $query->whereHas($table, function($sub_query) use ($where_child, $child_model, $new_depth) {
+              $this->applyNestedWheres($where_child, $sub_query, $child_model, true, false, $new_depth);
             });
           }
         }
